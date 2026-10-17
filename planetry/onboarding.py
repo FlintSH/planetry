@@ -64,7 +64,7 @@ class Onboarder:
                 or issue.get('user', {}).get('type') != 'User'
                 or issue.get('number') != number
                 or issue.get('html_url') != f'https://github.com/{repo}/issues/{number}'):
-            raise ValueError('Onboarding requires an open human-authored PlanetRy issue')
+            raise ValueError('Onboarding requires an open human-authored Planetry issue')
         return issue
 
     def _validate(self, repo, workspace, source_repo, source_issue):
@@ -77,7 +77,7 @@ class Onboarder:
                 or target.get('private') is not False or target.get('archived')
                 or target.get('fork') or target.get('disabled') or not target.get('has_issues')
                 or target.get('default_branch') != 'main'):
-            raise ValueError('Plugin must be a public main-branch repository owned by the PlanetRy owner')
+            raise ValueError('Plugin must be a public main-branch repository owned by the Planetry owner')
         if datetime.fromisoformat(target['created_at'].replace('Z', '+00:00')) < datetime.fromisoformat(source['created_at'].replace('Z', '+00:00')):
             raise ValueError('Repository predates its source issue; unrelated repositories cannot be adopted')
         if not workspace.is_absolute() or workspace != workspace.resolve():
@@ -111,10 +111,10 @@ class Onboarder:
         if not any(p in tracked for p in ('.github/workflows/release.yml', '.github/workflows/release.yaml')):
             raise ValueError('Plugin needs its release-on-main workflow')
         if not any(p.startswith('.github/ISSUE_TEMPLATE/') for p in tracked):
-            raise ValueError('Plugin needs its PlanetRy issue forms')
+            raise ValueError('Plugin needs its Planetry issue forms')
         agents = (workspace / 'AGENTS.md').read_text()
         if 'https://github.com/' + self.config.get('control_repository', 'FlintSH/planetry') not in agents:
-            raise ValueError('Plugin agent instructions must link the shared PlanetRy context')
+            raise ValueError('Plugin agent instructions must link the shared Planetry context')
         if not self.github.successful_runs(repo, head):
             raise ValueError('A successful main CI run is required before onboarding')
         releases = [r for r in self.github.list_releases(repo)
@@ -157,7 +157,7 @@ class Onboarder:
                 raise RuntimeError('Uncertain T3 project creation; reconcile the project before retrying')
             journal['project_intent'] = True
             atomic_json(journal_path, journal)
-            project = self.t3.call('t3_project_create', {'title': 'PlanetRy · ' + repo.split('/')[1],
+            project = self.t3.call('t3_project_create', {'title': 'Planetry · ' + repo.split('/')[1],
                                                         'workspaceRoot': str(workspace)})
         if not isinstance(project.get('id'), str) or not re.fullmatch(
                 r'(?:mcp:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', project['id']):
@@ -200,7 +200,7 @@ class Onboarder:
             context.write_text(json.dumps(descriptor, indent=2, ensure_ascii=False) + '\n')
             _git(checkout, 'add', 'repositories.json', context_path)
             if _git(checkout, 'diff', '--cached', '--name-only'):
-                _git(checkout, 'commit', '-m', f'Register {repo} in PlanetRy system context')
+                _git(checkout, 'commit', '-m', f'Register {repo} in Planetry system context')
                 # No force push. A competing main update leaves this retryable.
                 _git(checkout, 'push', 'origin', 'HEAD:main')
             _git(self.root, 'fetch', 'origin', 'main')

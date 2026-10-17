@@ -1,11 +1,11 @@
 name: Request a feature or change
-description: Describe how you would like PlanetRy to work.
+description: Describe how you would like Planetry to work.
 body:
   - type: markdown
     attributes:
       value: |
         Tell us what you want players or staff to be able to do. Technical details are optional.
-        The PlanetRy assistant will reply here, ask if it needs more information, and publish tested changes when ready.
+        The Planetry assistant will reply here, ask if it needs more information, and publish tested changes when ready.
   - type: textarea
     id: request
     attributes:

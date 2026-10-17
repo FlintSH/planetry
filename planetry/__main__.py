@@ -59,13 +59,13 @@ def refresh_router(router):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PlanetRy GitHub issue bridge')
+    parser = argparse.ArgumentParser(description='Planetry GitHub issue bridge')
     parser.add_argument('--config', required=True, help='Private operator JSON path')
     commands = parser.add_subparsers(dest='command', required=True)
     for name in ('run', 'once', 'status', 'check'):
         commands.add_parser(name)
     commands.add_parser('registry', help='Read the current repository map and plugin context')
-    onboard = commands.add_parser('onboard', help='Register a delivered plugin created from a PlanetRy issue')
+    onboard = commands.add_parser('onboard', help='Register a delivered plugin created from a Planetry issue')
     for flag in ('repo', 'workspace', 'source-repo'):
         onboard.add_argument('--' + flag, required=True)
     onboard.add_argument('--source-issue', required=True, type=int)
@@ -140,7 +140,7 @@ def main():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError('Another PlanetRy poller is already running') from None
+            raise ValueError('Another Planetry poller is already running') from None
         stopped = False
 
         def stop(*_):
@@ -183,5 +183,5 @@ if __name__ == '__main__':
     except Exception as error:
         # Detailed state remains local; generic error types cannot accidentally
         # expose tokens in a subprocess exception or an HTTP response body.
-        print(f'PlanetRy command failed ({type(error).__name__}). Check configuration and service status.', file=sys.stderr)
+        print(f'Planetry command failed ({type(error).__name__}). Check configuration and service status.', file=sys.stderr)
         sys.exit(1)

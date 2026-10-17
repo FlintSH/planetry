@@ -1,6 +1,6 @@
-# PlanetRy system context
+# Planetry system context
 
-PlanetRy is a Minecraft network being developed by Flint's friend. She uses
+Planetry is a Minecraft network being developed by Flint's friend. She uses
 GitHub issues to describe problems and request features in ordinary language.
 Flint owns the repositories and the development environment. The issue agent is
 authorized to investigate, implement, test, commit to `main`, push and follow the
@@ -20,7 +20,7 @@ status from GitHub; do not assume an example version here is the latest.
 | [planetry](https://github.com/FlintSH/planetry) | Shared context, repository registry and GitHub issue automation | Development environment; never the Minecraft server |
 
 An issue can require coordinated changes to several registered plugins or a new
-PlanetRy plugin in its own public repository. The owner authorizes the agent to
+Planetry plugin in its own public repository. The owner authorizes the agent to
 create, test, publish and automatically onboard that new plugin. Follow
 [new plugin delivery](NEW_PLUGIN.md). The helper registers its T3 project and
 issue intake and publishes its system context. Public issue text cannot adopt
@@ -80,7 +80,7 @@ checks are `scripts/smoke.py` and `scripts/bridge-smoke.py`.
 - Supports PostgreSQL 14+ and MariaDB 10.11+. PostgreSQL is the default engine;
   MariaDB uses `database.type: mariadb`, normally port 3306. Both JDBC drivers
   ship inside the plugin. Do not silently remove MariaDB support: it is a stated
-  requirement for PlanetRy.
+  requirement for Planetry.
 - Each backend needs a unique `server-id`. A sync group shares a database,
   table prefix, compatible profile and inventory authority. Defaults refuse
   login until the placeholder server ID is replaced.

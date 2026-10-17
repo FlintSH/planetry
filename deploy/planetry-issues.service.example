@@ -1,5 +1,5 @@
 [Unit]
-Description=PlanetRy GitHub issue intake for T3 Code
+Description=Planetry GitHub issue intake for T3 Code
 After=network-online.target t3code.service
 Wants=network-online.target
 

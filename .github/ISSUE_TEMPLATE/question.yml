@@ -1,10 +1,10 @@
 name: Ask a question
-description: Get help setting up or using the PlanetRy plugins.
+description: Get help setting up or using the Planetry plugins.
 body:
   - type: markdown
     attributes:
       value: |
-        The PlanetRy assistant will answer in this issue. You can keep the conversation going in the comments.
+        The Planetry assistant will answer in this issue. You can keep the conversation going in the comments.
         Do not include passwords, tokens or private connection details.
   - type: textarea
     id: question

@@ -1,6 +1,6 @@
 # Delivering a new plugin from an issue
 
-The owner authorizes a new PlanetRy plugin repository when that is the right
+The owner authorizes a new Planetry plugin repository when that is the right
 solution to a registered issue. Complete the work and onboard it automatically;
 do not ask the owner to register it manually. Keep the conversation in the
 original issue until delivery is complete.
@@ -38,10 +38,10 @@ Commit these six nonempty text fields (maximum 4,000 characters each):
 
 ```json
 {
-  "role": "What this plugin does for PlanetRy",
+  "role": "What this plugin does for Planetry",
   "platform": "Where it runs, for example Paper/Purpur or Velocity",
   "compatibility": "Minecraft, Java, API and database versions; upgrade constraints",
-  "integration": "Dependencies and contracts with other PlanetRy plugins",
+  "integration": "Dependencies and contracts with other Planetry plugins",
   "validation": "Build commands and required unit, storage and runtime checks",
   "source_issue": "https://github.com/FlintSH/planetry/issues/123"
 }

@@ -1,4 +1,4 @@
-"""Small, authenticated GitHub REST client used by the PlanetRy issue bridge.
+"""Small, authenticated GitHub REST client used by the Planetry issue bridge.
 
 No caller-controlled URL is ever allowed to move the Authorization header to a
 different host. ETag responses retain their pagination metadata, so an unchanged

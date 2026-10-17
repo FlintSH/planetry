@@ -156,7 +156,7 @@ class T3:
 
     def _pairing_credential(self) -> dict:
         command = [self.t3_command, "auth", "pairing", "create", "--ttl", "5m",
-                   "--label", "PlanetRy issue automation", "--json"]
+                   "--label", "Planetry issue automation", "--json"]
         for scope in MCP_SCOPES:
             command.extend(["--scope", scope])
         try:
@@ -172,7 +172,7 @@ class T3:
     def _renew_credentials(self) -> dict:
         redirect = "http://127.0.0.1/planetry-oauth-callback"
         registration = self._json_post("/oauth/mcp/register", {
-            "client_name": "PlanetRy issue automation",
+            "client_name": "Planetry issue automation",
             "redirect_uris": [redirect],
             "token_endpoint_auth_method": "none",
         })

@@ -1,4 +1,4 @@
-# Operating PlanetRy issue intake
+# Operating Planetry issue intake
 
 ## Architecture
 
@@ -91,7 +91,7 @@ synthetic GitHub issues for testing or health checks.
 
 ## Adding a plugin
 
-Plugins created to fulfill registered PlanetRy issues use the automatic
+Plugins created to fulfill registered Planetry issues use the automatic
 [`onboard` helper](NEW_PLUGIN.md). It validates the source issue, canonical repo
 and checkout, published main, successful CI, and release assets. It registers or
 reuses a T3 project, publishes the shared registry/context in a dedicated control
@@ -119,7 +119,7 @@ adoption of existing repositories.
 ## Authority and deployment boundary
 
 The router restricts which repositories enter the queue. Agents are instructed
-to accept PlanetRy development requests while refusing issue text that tries to
+to accept Planetry development requests while refusing issue text that tries to
 change their policy, expose secrets, access unrelated projects or deploy to the
 live Minecraft network. Their responses must use the marked reply helper.
 
@@ -127,7 +127,7 @@ These are task-scope instructions, **not an OS security sandbox**. This deployme
 runs agents under the existing development account with its GitHub access. A
 public issue can consume that account's model allowance and lead to a tested
 commit on main. For stronger credential and filesystem separation, move this
-service and T3 into a dedicated PlanetRy VM/account and use a GitHub App or
+service and T3 into a dedicated Planetry VM/account and use a GitHub App or
 credentials restricted to the registered repositories. The any-author policy is
 intentional; changing it requires the owner's instruction.
 

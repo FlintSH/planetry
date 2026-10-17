@@ -123,7 +123,7 @@ class OnboardingTests(unittest.TestCase):
         self.workspace.mkdir()
         git(self.workspace, 'init', '-b', 'main')
         git(self.workspace, 'config', 'user.email', 'tests@example.invalid')
-        git(self.workspace, 'config', 'user.name', 'PlanetRy test fixture')
+        git(self.workspace, 'config', 'user.name', 'Planetry test fixture')
         git(self.workspace, 'remote', 'add', 'origin', f'https://github.com/{PLUGIN}.git')
         self.descriptor = {
             'role': 'New gameplay plugin', 'platform': 'Paper/Purpur',
@@ -437,7 +437,7 @@ class OnboardingTests(unittest.TestCase):
         remote = self.root / 'control.git'
         git(self.control, 'init', '-b', 'main')
         git(self.control, 'config', 'user.email', 'tests@example.invalid')
-        git(self.control, 'config', 'user.name', 'PlanetRy test fixture')
+        git(self.control, 'config', 'user.name', 'Planetry test fixture')
         git(self.control, 'add', '.')
         git(self.control, 'commit', '-m', 'Initial local control registry')
         git(self.root, 'init', '--bare', str(remote))

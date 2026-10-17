@@ -1,13 +1,13 @@
-# PlanetRy
+# Planetry
 
-Shared context and development automation for the PlanetRy Minecraft network.
+Shared context and development automation for the Planetry Minecraft network.
 
 **Open an issue. The development agent replies there, works on the request,
 tests changes and publishes them. You do not need T3 Code or access to the VM.**
 
 - [Chat, join/leave messages and teleport requests](https://github.com/FlintSH/velocity-network-chat/issues/new/choose)
 - [Inventory sync and MariaDB](https://github.com/FlintSH/network-inventory-sync/issues/new/choose)
-- [General PlanetRy questions and requests](https://github.com/FlintSH/planetry/issues/new/choose)
+- [General Planetry questions and requests](https://github.com/FlintSH/planetry/issues/new/choose)
 
 Describe what happened, what you wanted to happen and which servers were
 involved. Screenshots and redacted errors help. Never post passwords, tokens or
@@ -28,7 +28,7 @@ Reopen a resolved issue if you need another code change.
 The owner has enabled requests from **all human issue authors**, not just
 collaborators. No approval label or special mention is needed. Bot-created issues
 and pull requests do not trigger this service. Agent comments are identified as
-PlanetRy automation, even though the current installation posts through Flint's
+Planetry automation, even though the current installation posts through Flint's
 GitHub account.
 
 The initial limits are one active issue thread and 20 new threads per UTC day.

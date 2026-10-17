@@ -1,11 +1,11 @@
 name: Something is not working
-description: Tell the PlanetRy development assistant what happened.
+description: Tell the Planetry development assistant what happened.
 body:
   - type: markdown
     attributes:
       value: |
         Describe this in your own words. You do not need to know how the plugin works.
-        The PlanetRy assistant will investigate and reply here. Answer its questions by adding a comment to this issue.
+        The Planetry assistant will investigate and reply here. Answer its questions by adding a comment to this issue.
         Issues are public: remove passwords, tokens and private connection details from logs or screenshots.
   - type: textarea
     id: problem
