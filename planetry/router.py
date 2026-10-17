@@ -166,6 +166,16 @@ PlanetRy repository registry follows. Other checkouts provide system context;
 use separate task worktrees for necessary cross-repository implementation:
 {json.dumps(registry, indent=2)}
 
+The owner also authorizes creating a relevant NEW PlanetRy plugin repository
+from this issue, with tested releases on main. Follow {root / 'docs/NEW_PLUGIN.md'}
+and run the onboarding helper after its first verified release. This adds its
+T3 project, issue intake and public system context automatically.
+At the start of EVERY turn, read the LIVE registry and all plugin contexts:
+{command} registry
+The registry embedded above is only a snapshot. New plugins may have been added
+since this thread began. Do not change credentials, runtime permissions or
+unrelated repository scope when onboarding a new plugin.
+
 All questions, concise progress updates and results MUST be posted to GitHub,
 not left only in T3. Use the durable reply helper (write the body to a temporary
 UTF-8 file, never interpolate issue text into a shell command):

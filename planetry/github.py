@@ -19,7 +19,7 @@ import tempfile
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from email.utils import parsedate_to_datetime
 
@@ -358,6 +358,68 @@ class GitHub:
 
     def get_issue(self, repo: str, number: int) -> dict[str, Any]:
         return self._object("GET", f"/repos/{_repository(repo)}/issues/{_number(number)}")
+
+    def get_repo(self, repo: str) -> dict[str, Any]:
+        return self._object("GET", f"/repos/{_repository(repo)}")
+
+    def get_commit(self, repo: str, ref: str = 'main') -> dict[str, Any]:
+        if ref != 'main':
+            raise ValueError('Onboarding reads published main only')
+        return self._object("GET", f"/repos/{_repository(repo)}/commits/main")
+
+    def list_releases(self, repo: str) -> list[dict[str, Any]]:
+        return self.get_pages(f"/repos/{_repository(repo)}/releases?per_page=100")
+
+    def tag_commit(self, repo: str, tag: str) -> str:
+        """Resolve an actual Git tag, peeling at most eight annotated tags."""
+        repo = _repository(repo)
+        if (not isinstance(tag, str) or not tag or len(tag) > 1024
+                or re.search(r'[\x00-\x20\x7f~^:?*\[\\]', tag)
+                or '..' in tag or '@{' in tag or tag == '@' or tag.endswith('.')
+                or any(not part or part.startswith('.') or part.endswith('.lock') for part in tag.split('/'))):
+            raise ValueError('Expected a valid Git tag name')
+        reference = self._object('GET', f'/repos/{repo}/git/ref/tags/{quote(tag, safe="")}')
+        if reference.get('ref') != 'refs/tags/' + tag:
+            raise GitHubError('GitHub returned an unexpected tag reference')
+        obj = reference.get('object')
+        seen = set()
+        while True:
+            if (not isinstance(obj, dict) or not isinstance(obj.get('sha'), str)
+                    or not re.fullmatch(r'[0-9a-f]{40}', obj['sha'])):
+                raise GitHubError('GitHub returned an invalid tag object')
+            if obj.get('type') == 'commit':
+                return obj['sha']
+            if obj.get('type') != 'tag':
+                raise GitHubError('GitHub tag does not resolve to a commit')
+            if obj['sha'] in seen or len(seen) >= 8:
+                raise GitHubError('GitHub annotated tag chain repeated or exceeded its limit')
+            seen.add(obj['sha'])
+            annotated = self._object('GET', f'/repos/{repo}/git/tags/{obj["sha"]}')
+            if annotated.get('sha') != obj['sha']:
+                raise GitHubError('GitHub returned an unexpected annotated tag')
+            obj = annotated.get('object')
+
+    def successful_runs(self, repo: str, sha: str) -> list[dict[str, Any]]:
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+            raise ValueError('Expected a complete commit SHA')
+        current = self._url(f'/repos/{_repository(repo)}/actions/runs?branch=main&head_sha={sha}&status=success&per_page=100')
+        seen, runs = set(), []
+        while current:
+            if current in seen or len(seen) >= _MAX_PAGES:
+                raise GitHubError('GitHub workflow pagination repeated or exceeded its page limit')
+            seen.add(current)
+            data, current = self._request('GET', current)
+            if (not isinstance(data, dict) or not isinstance(data.get('workflow_runs'), list)
+                    or any(not isinstance(run, dict) for run in data['workflow_runs'])):
+                raise GitHubError('GitHub returned an unexpected workflow response')
+            # A green unrelated workflow (or a pull_request_target run on the
+            # base branch) cannot stand in for the plugin's release-on-push run.
+            runs.extend(run for run in data['workflow_runs']
+                        if run.get('head_sha') == sha and run.get('head_branch') == 'main'
+                        and run.get('conclusion') == 'success' and run.get('status') == 'completed'
+                        and run.get('event') == 'push'
+                        and run.get('path') in {'.github/workflows/release.yml', '.github/workflows/release.yaml'})
+        return runs
 
     def get_comments(self, repo: str, number: int) -> list[dict[str, Any]]:
         return self.get_pages(f"/repos/{_repository(repo)}/issues/{_number(number)}/comments?per_page=100")

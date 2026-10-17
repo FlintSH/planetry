@@ -50,8 +50,10 @@ network operator controls production servers and player data.
 
 The plugins remain separate repositories with their own build and release
 pipelines. [`repositories.json`](repositories.json) is the shared inventory.
-Adding a future plugin does not require rebuilding the router; register its
-repository and T3 project as described in the [operator guide](docs/OPERATIONS.md).
+When an issue needs a new plugin, the agent creates its repository and release
+pipeline and automatically adds it to issue intake and shared system context.
+Future issues in any registered repository can then work across that plugin too.
+See [new plugin delivery](docs/NEW_PLUGIN.md).
 
 ## Development
 

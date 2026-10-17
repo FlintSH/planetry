@@ -48,12 +48,27 @@ def load_config(path):
     return config
 
 
+def refresh_router(router):
+    """Hot-load validated additions while preserving process-bound clients/state."""
+    fresh = load_config(router.config['config_path'])
+    for key in ('state_dir', 'control_root', 't3_endpoint'):
+        if fresh.get(key) != router.config.get(key):
+            raise ValueError('Changing runtime paths or T3 endpoint requires a service restart')
+    router.config = fresh
+    router.repos = {r['name']: r for r in fresh['repositories']}
+
+
 def main():
     parser = argparse.ArgumentParser(description='PlanetRy GitHub issue bridge')
     parser.add_argument('--config', required=True, help='Private operator JSON path')
     commands = parser.add_subparsers(dest='command', required=True)
     for name in ('run', 'once', 'status', 'check'):
         commands.add_parser(name)
+    commands.add_parser('registry', help='Read the current repository map and plugin context')
+    onboard = commands.add_parser('onboard', help='Register a delivered plugin created from a PlanetRy issue')
+    for flag in ('repo', 'workspace', 'source-repo'):
+        onboard.add_argument('--' + flag, required=True)
+    onboard.add_argument('--source-issue', required=True, type=int)
     for name in ('reply', 'context'):
         child = commands.add_parser(name)
         child.add_argument('--repo', required=True)
@@ -67,6 +82,18 @@ def main():
     config = load_config(args.config)
     state = Path(config['state_dir'])
     store = Store(state / 'router.sqlite')
+    if args.command == 'registry':
+        manifest = json.loads((Path(config['control_root']) / 'repositories.json').read_text())
+        contexts = []
+        for repo in manifest['repositories']:
+            if 'context' in repo:
+                path = (Path(config['control_root']) / repo['context']).resolve()
+                if not path.is_relative_to(Path(config['control_root']).resolve() / 'docs/plugins'):
+                    raise ValueError('Plugin context path escapes the shared context directory')
+                contexts.append({'repository': repo['name'], 'context': json.loads(path.read_text())})
+        print(json.dumps({'repositories': config['repositories'], 'system': manifest,
+                          'plugin_contexts': contexts}, indent=2, ensure_ascii=False))
+        return 0
     if args.command == 'status':
         print(json.dumps({'last_poll': store.meta('last_poll'),
             'last_successful_poll': store.meta('last_successful_poll'),
@@ -78,6 +105,11 @@ def main():
         return 0
     github = GitHub(state / 'github')
     t3 = T3(state, endpoint=config.get('t3_endpoint', 'http://127.0.0.1:3773/mcp'))
+    if args.command == 'onboard':
+        from .onboarding import Onboarder
+        print(json.dumps(Onboarder(config, github, t3).run(
+            args.repo, Path(args.workspace), args.source_repo, args.source_issue), indent=2))
+        return 0
     router = Router(config, github, t3, store)
     if args.command in ('reply', 'context'):
         if args.repo not in router.repos or args.issue < 1:
@@ -121,6 +153,11 @@ def main():
         while not stopped:
             delay = config.get('poll_seconds', 60)
             try:
+                try:
+                    refresh_router(router)
+                except (ValueError, KeyError, TypeError, OSError):
+                    logging.error('Configuration refresh rejected; keeping the last known good registry')
+                delay = router.config.get('poll_seconds', 60)
                 router.tick()
                 failures = 0
             except Exception as exc:

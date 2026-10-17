@@ -91,12 +91,30 @@ synthetic GitHub issues for testing or health checks.
 
 ## Adding a plugin
 
-The operator adds the repository to `repositories.json`, registers its checkout
-as a T3 project, adds that project ID/path to the private configuration and updates
-`docs/SYSTEM.md` with its purpose, compatibility, integration contracts and test
-commands. Copy `.github/ISSUE_TEMPLATE/` into the plugin if it has no existing
-forms. Restart intake and verify `check` and the automated suite. No author allowlist is
-needed, and no webhook secrets need copying between repositories.
+Plugins created to fulfill registered PlanetRy issues use the automatic
+[`onboard` helper](NEW_PLUGIN.md). It validates the source issue, canonical repo
+and checkout, published main, successful CI, and release assets. It registers or
+reuses a T3 project, publishes the shared registry/context in a dedicated control
+worktree, fast-forwards the clean control checkout, then atomically appends the
+private configuration. All subsequent issue prompts load the live registry.
+
+The service reloads validated repository additions before every poll, preserving
+existing thread mappings and queue state. No restart or copied webhook secret
+is needed. Invalid configuration leaves the last known good registry active;
+changes to runtime paths or the T3 endpoint still require an operator restart.
+
+Onboarding holds a cross-process lock. Retry the same command after interruption:
+it reuses matching projects and public/private registrations. An uncertain T3
+project creation is held until project discovery can reconcile its workspace.
+Unpublished control worktrees remain in the private state's
+`onboarding-worktrees` directory for recovery. A dirty control checkout, conflicting
+main push, changed source identity or unrelated repository fails without replacing
+existing configuration. The source issue must remain open until onboarding completes.
+
+The operator can still deliberately register an existing plugin by updating the
+public registry/context, T3 project and private configuration. The automatic
+helper is specifically for newly created issue-driven plugins, not arbitrary
+adoption of existing repositories.
 
 ## Authority and deployment boundary
 
@@ -115,4 +133,5 @@ intentional; changing it requires the owner's instruction.
 
 Agent changes to plugin code follow main CI and the existing release pipeline.
 Changes to this service require its own tests and an operator-controlled service
-restart. Do not let an issue rewrite its own permissions or registry.
+restart. New plugin registration through the helper is authorized; an issue still
+cannot rewrite its own permissions, authentication or other operational policy.

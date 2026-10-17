@@ -266,6 +266,168 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(json.loads(opener.requests[4].data), {"state": "closed"})
         self.assertTrue(all(timeout == 30 for timeout in opener.timeouts))
 
+    def test_onboarding_repository_and_published_main_have_fixed_paths(self):
+        sha = 'a' * 40
+        client, opener = self.client(Response({'full_name': 'FlintSH/planetry-test'}), Response({'sha': sha}))
+        self.assertEqual(client.get_repo('FlintSH/planetry-test')['full_name'], 'FlintSH/planetry-test')
+        self.assertEqual(client.get_commit('FlintSH/planetry-test')['sha'], sha)
+        self.assertEqual([request.full_url for request in opener.requests], [
+            API + '/repos/FlintSH/planetry-test', API + '/repos/FlintSH/planetry-test/commits/main'])
+        self.assertTrue(all(request.get_method() == 'GET' for request in opener.requests))
+
+    def test_onboarding_methods_reject_noncanonical_inputs_before_requests(self):
+        client, opener = self.client()
+        sha = 'a' * 40
+        for method in (client.get_repo, client.get_commit, client.list_releases,
+                       lambda repo: client.successful_runs(repo, sha)):
+            for repo in ('owner/repo/extra', 'owner/repo?redirect=1', 'https://attacker.invalid/repo', 'owner/..'):
+                with self.subTest(method=method, repo=repo), self.assertRaises(ValueError):
+                    method(repo)
+        for ref in ('feature/new', '../main', 'main?redirect=1', sha, None):
+            with self.subTest(ref=ref), self.assertRaises(ValueError):
+                client.get_commit('FlintSH/planetry-test', ref)
+        for invalid_sha in ('a' * 39, 'a' * 41, 'A' * 40, 'g' * 40, 'a' * 40 + '&branch=other', None, 123):
+            with self.subTest(sha=invalid_sha), self.assertRaises(ValueError):
+                client.successful_runs('FlintSH/planetry-test', invalid_sha)
+        self.assertEqual(opener.requests, [])
+
+    def test_release_listing_uses_all_pages_with_cached_pagination(self):
+        path = '/repos/FlintSH/planetry-test/releases?per_page=100'
+        second = API + path + '&page=2'
+        client, opener = self.client(
+            Response([{'id': 1, 'draft': True}], response_headers={'ETag': '"releases-one"', 'Link': f'<{second}>; rel="next"'}),
+            Response([{'id': 2, 'draft': False}], response_headers={'ETag': '"releases-two"'}),
+            http_error(304), http_error(304),
+        )
+        expected = [{'id': 1, 'draft': True}, {'id': 2, 'draft': False}]
+        self.assertEqual(client.list_releases('FlintSH/planetry-test'), expected)
+        self.assertEqual(client.list_releases('FlintSH/planetry-test'), expected)
+        self.assertEqual([request.full_url for request in opener.requests], [API + path, second] * 2)
+
+    def test_successful_runs_require_exact_release_workflow_push_and_main_commit(self):
+        sha = 'a' * 40
+        base = {'head_sha': sha, 'head_branch': 'main', 'conclusion': 'success',
+                'status': 'completed', 'event': 'push', 'path': '.github/workflows/release.yml'}
+        valid = [dict(base, id=1), dict(base, id=2, path='.github/workflows/release.yaml')]
+        invalid = [dict(base, **change) for change in (
+            {'head_sha': 'b' * 40}, {'head_branch': 'feature'}, {'conclusion': 'failure'},
+            {'conclusion': 'neutral'}, {'status': 'in_progress'}, {'event': 'pull_request'},
+            {'event': 'pull_request_target'}, {'event': 'workflow_dispatch'},
+            {'path': '.github/workflows/lint.yml'}, {'path': '.github/workflows/release.yml@refs/heads/feature'},
+            {'path': '.github/workflows/RELEASE.yml'}, {'path': None},
+        )]
+        missing_path = dict(base)
+        del missing_path['path']
+        client, opener = self.client(Response({'workflow_runs': invalid + [missing_path] + valid}))
+        self.assertEqual(client.successful_runs('FlintSH/planetry-test', sha), valid)
+        self.assertEqual(opener.requests[0].full_url,
+            API + f'/repos/FlintSH/planetry-test/actions/runs?branch=main&head_sha={sha}&status=success&per_page=100')
+
+    def test_successful_release_run_on_later_page_is_not_hidden_by_cache(self):
+        sha = 'c' * 40
+        path = f'/repos/FlintSH/planetry-test/actions/runs?branch=main&head_sha={sha}&status=success&per_page=100'
+        run = {'id': 9, 'head_sha': sha, 'head_branch': 'main', 'conclusion': 'success',
+               'status': 'completed', 'event': 'push', 'path': '.github/workflows/release.yml'}
+        client, opener = self.client(
+            Response({'workflow_runs': []}, response_headers={'ETag': '"runs-one"', 'Link': '<?page=2>; rel="next"'}),
+            Response({'workflow_runs': [run]}, response_headers={'ETag': '"runs-two"'}),
+            http_error(304), http_error(304),
+        )
+        self.assertEqual(client.successful_runs('FlintSH/planetry-test', sha), [run])
+        self.assertEqual(client.successful_runs('FlintSH/planetry-test', sha), [run])
+        self.assertEqual(opener.requests[0].full_url, API + path)
+        self.assertEqual(opener.requests[1].full_url, API + '/repos/FlintSH/planetry-test/actions/runs?page=2')
+        self.assertEqual(opener.requests[3].get_header('If-none-match'), '"runs-two"')
+
+    def test_workflow_pagination_rejects_foreign_host_and_cycles(self):
+        sha = 'a' * 40
+        path = f'/repos/FlintSH/planetry-test/actions/runs?branch=main&head_sha={sha}&status=success&per_page=100'
+        for target in ('https://attacker.invalid/runs', API + path):
+            with self.subTest(target=target):
+                client, opener = self.client(Response({'workflow_runs': []}, response_headers={'Link': f'<{target}>; rel="next"'}))
+                with self.assertRaises(GitHubError):
+                    client.successful_runs('FlintSH/planetry-test', sha)
+                self.assertEqual(len(opener.requests), 1)
+
+    def test_malformed_workflow_response_cannot_approve_onboarding(self):
+        for payload in ({}, {'workflow_runs': None}, {'workflow_runs': {}}, {'workflow_runs': [None]}, []):
+            with self.subTest(payload=payload):
+                client, _ = self.client(Response(payload))
+                with self.assertRaises(GitHubError):
+                    client.successful_runs('FlintSH/planetry-test', 'a' * 40)
+
+    def test_lightweight_tag_resolves_actual_commit_with_encoded_name(self):
+        tag = 'releases/v1.0+build#2'
+        sha = 'a' * 40
+        client, opener = self.client(Response({'ref': 'refs/tags/' + tag,
+                                               'object': {'type': 'commit', 'sha': sha}}))
+        self.assertEqual(client.tag_commit('FlintSH/planetry-test', tag), sha)
+        self.assertEqual(opener.requests[0].full_url,
+            API + '/repos/FlintSH/planetry-test/git/ref/tags/releases%2Fv1.0%2Bbuild%232')
+        self.assertEqual(len(opener.requests), 1)
+
+    def test_nested_annotated_tags_are_peeled_to_the_commit(self):
+        first, second, commit = '1' * 40, '2' * 40, '3' * 40
+        client, opener = self.client(
+            Response({'ref': 'refs/tags/v1', 'object': {'type': 'tag', 'sha': first}}),
+            Response({'sha': first, 'object': {'type': 'tag', 'sha': second}}),
+            Response({'sha': second, 'object': {'type': 'commit', 'sha': commit}}),
+        )
+        self.assertEqual(client.tag_commit('FlintSH/planetry-test', 'v1'), commit)
+        self.assertEqual([request.full_url for request in opener.requests], [
+            API + '/repos/FlintSH/planetry-test/git/ref/tags/v1',
+            API + '/repos/FlintSH/planetry-test/git/tags/' + first,
+            API + '/repos/FlintSH/planetry-test/git/tags/' + second])
+
+    def test_invalid_tag_names_are_rejected_before_requests(self):
+        client, opener = self.client()
+        for tag in (None, 1, '', '../heads/main', 'a..b', '.hidden', 'v1/.hidden', 'v1//tag',
+                    'v1/', 'v1.', 'v1.lock', 'v1?query=1', 'a b', 'v1\n', 'v1@{next}', 'v1\\tag'):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                client.tag_commit('FlintSH/planetry-test', tag)
+        with self.assertRaises(ValueError):
+            client.tag_commit('FlintSH/repo/extra', 'v1')
+        self.assertEqual(opener.requests, [])
+
+    def test_wrong_tag_reference_or_noncommit_target_is_rejected(self):
+        for payload in (
+            {'ref': 'refs/heads/main', 'object': {'type': 'commit', 'sha': 'a' * 40}},
+            {'ref': 'refs/tags/other', 'object': {'type': 'commit', 'sha': 'a' * 40}},
+            {'ref': 'refs/tags/v1', 'object': {'type': 'tree', 'sha': 'a' * 40}},
+            {'ref': 'refs/tags/v1', 'object': {'type': 'blob', 'sha': 'a' * 40}},
+            {'ref': 'refs/tags/v1', 'object': {'type': 'commit', 'sha': 'short'}},
+            {'ref': 'refs/tags/v1', 'object': None},
+        ):
+            with self.subTest(payload=payload):
+                client, _ = self.client(Response(payload))
+                with self.assertRaises(GitHubError):
+                    client.tag_commit('FlintSH/planetry-test', 'v1')
+
+    def test_annotated_tag_identity_and_cycles_are_checked(self):
+        sha = 'a' * 40
+        for annotated in (
+            {'sha': 'b' * 40, 'object': {'type': 'commit', 'sha': 'c' * 40}},
+            {'sha': sha, 'object': {'type': 'tag', 'sha': sha}},
+        ):
+            with self.subTest(annotated=annotated):
+                client, opener = self.client(
+                    Response({'ref': 'refs/tags/v1', 'object': {'type': 'tag', 'sha': sha}}),
+                    Response(annotated),
+                )
+                with self.assertRaises(GitHubError):
+                    client.tag_commit('FlintSH/planetry-test', 'v1')
+                self.assertEqual(len(opener.requests), 2)
+
+    def test_annotated_tag_depth_is_bounded_at_eight(self):
+        chain = [f'{n:040x}' for n in range(1, 10)]
+        replies = [Response({'ref': 'refs/tags/v1', 'object': {'type': 'tag', 'sha': chain[0]}})]
+        replies.extend(Response({'sha': chain[index], 'object': {'type': 'tag', 'sha': chain[index + 1]}})
+                       for index in range(8))
+        client, opener = self.client(*replies)
+        with self.assertRaisesRegex(GitHubError, 'exceeded its limit'):
+            client.tag_commit('FlintSH/planetry-test', 'v1')
+        self.assertEqual(len(opener.requests), 9)
+
 
 if __name__ == "__main__":
     unittest.main()
