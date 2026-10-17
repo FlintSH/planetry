@@ -113,6 +113,18 @@ Read the README, configuration defaults, `docs/ACCEPTANCE.md` and
 changes must retain transaction, fencing, rollback and compatibility coverage
 for both engines. TLS or packaging changes also need their relevant checks.
 
+## PlanetryCore
+
+[PlanetryCore](https://github.com/FlintSH/planetry-core) provides persistent game
+levels, rewards, XP display, placeholders and network mail on Paper/Purpur
+26.1.2 / Java 25. Read its [live plugin context](plugins/planetry-core.json) and
+README for setup and recovery. Shared mail uses Core's MariaDB/PostgreSQL database
+and authenticated forwarded UUIDs across participating backends. `/mail` claims
+saved gifts; `planetry.admin.sendmail` gates individual/offline and all-online
+sends. Mail console commands execute on the claiming backend after a durable
+claim and Inventory Sync readiness. Uncertain effects require operator review
+and are never retried automatically. No proxy update is required for mail.
+
 ## Integration between plugins
 
 The teleport bridge consults `NetworkInventorySync.isReady(UUID)` immediately
