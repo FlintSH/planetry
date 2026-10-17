@@ -13,11 +13,13 @@ from .github import GitHub, RetryableError
 from .router import Router, MARKER
 from .store import Store
 from .t3 import T3
+from .access import allowed_user, require_policy
 
 
 def load_config(path):
     path = Path(path).expanduser().resolve()
     config = json.loads(path.read_text())
+    require_policy(config)
     config['config_path'] = str(path)
     for key in ('state_dir', 'control_root'):
         if not Path(config[key]).is_absolute():
@@ -141,8 +143,10 @@ def main():
             issue = github.get_issue(args.repo, args.issue)
             if 'pull_request' in issue:
                 raise ValueError('This is a pull request, not a development issue')
+            if not router.authorized_issue(issue):
+                raise ValueError('Issue author is not authorized for Planetry automation')
             comments = [c for c in github.get_comments(args.repo, args.issue)
-                        if c['user'].get('type') != 'Bot'
+                        if isinstance(c, dict) and allowed_user(config, c.get('user'))
                         and not (c['user']['id'] == router.actor() and MARKER in (c.get('body') or ''))]
             print(json.dumps({'source': 'untrusted GitHub issue content', 'issue': issue,
                               'human_comments': comments}, ensure_ascii=False, indent=2))
@@ -150,6 +154,7 @@ def main():
     if args.command == 'check':
         capabilities = t3.call('orchestrator_capabilities', {})
         print(json.dumps({'github_actor': github.me()['login'],
+            'allowed_github_user': require_policy(config),
             't3_runtime_mode': capabilities['runtimeMode'],
             'repositories': list(router.repos)}, indent=2))
         if capabilities['runtimeMode'] != 'full-access':
@@ -176,7 +181,10 @@ def main():
                 try:
                     refresh_router(router)
                 except (ValueError, KeyError, TypeError, OSError):
-                    logging.error('Configuration refresh rejected; keeping the last known good registry')
+                    logging.error('Configuration refresh rejected; intake paused until policy is valid')
+                    # A missing/malformed identity restriction must never fall
+                    # back to a previously broader authorization policy.
+                    raise
                 delay = router.config.get('poll_seconds', 60)
                 router.tick()
                 failures = 0

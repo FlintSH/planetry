@@ -120,6 +120,7 @@ class Store:
         issue = self.issue(repo, number)
         if not issue:
             return  # Pull request comments are absent from the issue table.
+        self.verify_comment_author(repo, number, comment)
         with self.db:
             if self.observe(f'comment:{comment["id"]}', digest(body)):
                 # Ignore a historical closed issue until reopened. A mapped closed
@@ -127,7 +128,23 @@ class Store:
                 if json.loads(issue['payload'])['state'] == 'open' or issue['thread_id']:
                     self.add_event(repo, number, 'comment', {
                         'id': comment['id'], 'author': comment['user']['login'],
+                        'author_id': comment['user']['id'],
                         'body': body, 'updated_at': comment['updated_at']})
+
+    def verify_comment_author(self, repo, number, comment):
+        """Backfill legacy provenance from a fresh GitHub resource, never a login."""
+        user = comment.get('user')
+        if (type(comment.get('id')) is not int or not isinstance(user, dict)
+                or user.get('type') != 'User' or type(user.get('id')) is not int
+                or user['id'] <= 0):
+            return
+        with self.db:
+            for old in self.db.execute("SELECT id,payload FROM events WHERE repo=? AND number=? AND kind='comment' AND state='pending'",
+                                       (repo, number)).fetchall():
+                content = json.loads(old['payload'])
+                if content.get('id') == comment['id'] and 'author_id' not in content:
+                    content['author_id'] = user['id']
+                    self.db.execute('UPDATE events SET payload=? WHERE id=?', (json.dumps(content), old['id']))
 
     def add_event(self, repo, number, kind, payload):
         self.db.execute('INSERT INTO events(repo,number,kind,payload,created) VALUES (?,?,?,?,?)',
@@ -163,6 +180,47 @@ class Store:
                             (repo, number)).fetchone()
         return dict(r) if r else None
 
+    def discard_events(self, repo, number, event_ids):
+        """Remove denied input from the queue and invalidate prompts containing it."""
+        event_ids = set(event_ids)
+        if not event_ids:
+            return
+        with self.db:
+            self.db.executemany("UPDATE events SET state='ignored' WHERE repo=? AND number=? AND id=? AND state='pending'",
+                                [(repo, number, eid) for eid in event_ids])
+            for row in self.db.execute("SELECT key,event_ids FROM deliveries WHERE repo=? AND number=? AND state='pending'",
+                                       (repo, number)).fetchall():
+                if event_ids.intersection(json.loads(row['event_ids'])):
+                    self.db.execute("UPDATE deliveries SET state='ignored' WHERE key=?", (row['key'],))
+
+    def refresh_delivery_message(self, key, message):
+        with self.db:
+            self.db.execute("UPDATE deliveries SET message=? WHERE key=? AND state='pending'", (message, key))
+
+    def unlinked_intents(self):
+        return [dict(r) for r in self.db.execute("SELECT * FROM issues WHERE launch_state='intent' AND thread_id IS NULL")]
+
+    def begin_launch(self, repo, number, title, delivery_key):
+        # Pin exactly the prompt whose acceptance may become uncertain. Later
+        # policy filtering or new comments must not change its event set.
+        with self.db:
+            self.db.execute("UPDATE issues SET launch_state='intent', launch_title=?, launch_at=? WHERE repo=? AND number=?",
+                            (title, time.time(), repo, number))
+            self.db.execute('INSERT OR REPLACE INTO metadata VALUES (?,?)',
+                            (f'launch_delivery:{repo}:{number}', json.dumps(delivery_key)))
+
+    def launch_delivery(self, repo, number):
+        key = self.meta(f'launch_delivery:{repo}:{number}')
+        if key is None:
+            # Pre-policy intents have one outstanding launch delivery. Pin it
+            # before filtering can invalidate that original prompt.
+            row = self.pending_delivery(repo, number)
+            if row is None:
+                raise ValueError('Launch intent has no recoverable delivery')
+            key = row['key']
+            self.set_meta(f'launch_delivery:{repo}:{number}', key)
+        return key
+
     def complete_delivery(self, key):
         with self.db:
             self._complete_delivery(key)
@@ -172,7 +230,7 @@ class Store:
         if row is None:
             raise ValueError('Unknown delivery')
         for eid in json.loads(row[0]):
-            self.db.execute("UPDATE events SET state='delivered' WHERE id=?", (eid,))
+            self.db.execute("UPDATE events SET state='delivered' WHERE id=? AND state='pending'", (eid,))
         self.db.execute("UPDATE deliveries SET state='delivered' WHERE key=?", (key,))
 
     def link_launch(self, repo, number, thread_id, run_id, delivery_key):
@@ -200,7 +258,7 @@ class Store:
             self.db.execute('UPDATE replies SET comment_id=?, state=? WHERE key=?', (comment_id, state, key))
 
     def pending_replies(self):
-        return [dict(r) for r in self.db.execute("SELECT * FROM replies WHERE state != 'sent'")]
+        return [dict(r) for r in self.db.execute("SELECT * FROM replies WHERE state IN ('pending','commented')")]
 
     def mappings(self):
         return [dict(r) for r in self.db.execute('SELECT * FROM issues WHERE thread_id IS NOT NULL')]

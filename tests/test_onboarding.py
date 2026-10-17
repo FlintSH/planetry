@@ -151,6 +151,7 @@ class OnboardingTests(unittest.TestCase):
         self.config = {
             'control_root': str(self.control), 'state_dir': str(self.root / 'state'),
             'config_path': str(self.config_path),
+            'allowed_github_user': {'id': 901, 'login': 'requester'},
             'repositories': [{'name': SOURCE, 'workspace': str(self.control),
                               'project_id': SOURCE_PROJECT}],
         }
@@ -216,6 +217,38 @@ class OnboardingTests(unittest.TestCase):
     def test_bot_authored_source_is_rejected(self):
         self.github.issue['user']['type'] = 'Bot'
         self.assert_rejected()
+
+    def test_denied_source_has_no_git_t3_or_registration_mutations(self):
+        before = self.config_path.read_text()
+        for user_id in [902, 77, '901', 901.0, True, False, 0, -1, None]:
+            with self.subTest(user_id=user_id):
+                # A copied login and repository ownership cannot authorize an ID.
+                self.github.issue['user'] = {
+                    'id': user_id, 'login': 'requester', 'type': 'User'}
+                with patch('planetry.onboarding._git') as git_call, \
+                        patch.object(self.github, 'get_repo') as get_repo:
+                    self.assert_rejected()
+                git_call.assert_not_called()
+                get_repo.assert_not_called()
+                self.assertEqual([], self.t3.calls)
+                self.assertEqual(before, self.config_path.read_text())
+                self.assertEqual([], list((self.root / 'state').glob('onboarding-*.json')))
+
+    def test_missing_allowed_user_policy_is_rejected_before_external_changes(self):
+        current = copy.deepcopy(self.config)
+        del current['allowed_github_user']
+        self.config_path.write_text(json.dumps(current))
+        before = self.config_path.read_text()
+        with patch('planetry.onboarding._git') as git_call:
+            self.assert_rejected()
+        git_call.assert_not_called()
+        self.assertEqual([], self.t3.calls)
+        self.assertEqual(before, self.config_path.read_text())
+
+    def test_source_user_rename_with_same_numeric_id_is_allowed(self):
+        self.github.issue['user']['login'] = 'renamed-requester'
+        self.assertEqual(PLUGIN, self.run_onboarding()['name'])
+        self.assertEqual(1, self.t3.create_calls)
 
     def test_different_owner_is_rejected(self):
         self.github.repo['owner']['login'] = 'AnotherOwner'

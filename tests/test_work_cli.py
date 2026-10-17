@@ -25,7 +25,7 @@ class WorkCliTests(unittest.TestCase):
         for number in (1, 2):
             store.ingest_issue(self.repo, {
                 'id': number, 'number': number, 'title': 'Local fixture', 'body': '',
-                'state': 'open', 'user': {'id': 1, 'type': 'User'}})
+                'state': 'open', 'user': {'id': 1, 'login': 'renamed-requester', 'type': 'User'}})
         store.db.close()
         return config
 

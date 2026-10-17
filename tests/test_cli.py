@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from planetry.__main__ import load_config, main, refresh_router
 from planetry.router import Router
@@ -29,6 +29,7 @@ class ConfigTests(unittest.TestCase):
         self.config_path = self.root / 'operator.json'
         self.config = {
             'control_root': str(self.control), 'state_dir': str(self.root / 'state'),
+            'allowed_github_user': {'id': 1, 'login': 'thebeeee'},
             'poll_seconds': 60, 'max_active_threads': 1, 'max_new_threads_per_day': 20,
             'repositories': [{'name': self.repo, 'workspace': str(self.root / 'chat'),
                               'project_id': '12345678-abcd-1234-5678-123456789abc'}],
@@ -42,6 +43,28 @@ class ConfigTests(unittest.TestCase):
         loaded = self.load()
         self.assertEqual(str(self.config_path.resolve()), loaded['config_path'])
         self.assertEqual(0o700, stat.S_IMODE(Path(loaded['state_dir']).stat().st_mode))
+        self.assertEqual({'id': 1, 'login': 'thebeeee'}, loaded['allowed_github_user'])
+
+    def test_access_policy_is_required(self):
+        del self.config['allowed_github_user']
+        with self.assertRaises(ValueError):
+            self.load()
+
+    def test_access_policy_requires_an_actual_positive_integer_id(self):
+        for user_id in (None, False, True, 0, -1, '1', 1.0, [], {}):
+            with self.subTest(user_id=user_id):
+                config = copy.deepcopy(self.config)
+                config['allowed_github_user']['id'] = user_id
+                with self.assertRaises(ValueError):
+                    self.load(config)
+
+    def test_access_policy_requires_a_user_record_with_login_metadata(self):
+        for policy in (None, True, 1, 'thebeeee', [], {}, {'login': 'thebeeee'},
+                       {'id': 1}, {'id': 1, 'login': None}, {'id': 1, 'login': ''},
+                       {'id': 1, 'login': 1}):
+            with self.subTest(policy=policy):
+                with self.assertRaises(ValueError):
+                    self.load(dict(self.config, allowed_github_user=policy))
 
     def test_plain_and_mcp_project_ids_are_supported(self):
         for project in ('12345678-abcd-1234-5678-123456789abc', 'mcp:12345678-abcd-1234-5678-123456789abc'):
@@ -113,12 +136,26 @@ class ConfigTests(unittest.TestCase):
         self.assertIs(github, router.github)
         self.assertIs(t3, router.t3)
 
+    def test_refresh_adopts_replacement_user_id_without_restarting_clients(self):
+        initial = self.load()
+        store, github, t3 = object(), object(), object()
+        router = SimpleNamespace(config=initial, repos={self.repo: initial['repositories'][0]},
+                                 store=store, github=github, t3=t3)
+        self.config['allowed_github_user'] = {'id': 2, 'login': 'replacement-user'}
+        self.config_path.write_text(json.dumps(self.config))
+        refresh_router(router)
+        self.assertEqual({'id': 2, 'login': 'replacement-user'}, router.config['allowed_github_user'])
+        self.assertIs(store, router.store)
+        self.assertIs(github, router.github)
+        self.assertIs(t3, router.t3)
+
     def test_refresh_failure_preserves_last_known_good_registry(self):
         initial = self.load()
         repos = {self.repo: initial['repositories'][0]}
         router = SimpleNamespace(config=initial, repos=repos)
         for change in [dict(repositories=[]), dict(state_dir=str(self.root / 'other-state')),
-                       dict(t3_endpoint='http://127.0.0.1:9999/mcp')]:
+                       dict(t3_endpoint='http://127.0.0.1:9999/mcp'),
+                       dict(allowed_github_user={'id': True, 'login': 'thebeeee'})]:
             with self.subTest(change=change):
                 modified = dict(self.config, **change)
                 self.config_path.write_text(json.dumps(modified))
@@ -131,6 +168,36 @@ class ConfigTests(unittest.TestCase):
             refresh_router(router)
         self.assertIs(initial, router.config)
         self.assertIs(repos, router.repos)
+
+    def test_once_does_not_poll_when_access_policy_becomes_invalid_on_disk(self):
+        missing_policy = dict(self.config)
+        del missing_policy['allowed_github_user']
+        invalid_files = [
+            ('missing policy', json.dumps(missing_policy)),
+            ('null policy', json.dumps(dict(self.config, allowed_github_user=None))),
+            ('string user ID', json.dumps(dict(
+                self.config, allowed_github_user={'id': '1', 'login': 'thebeeee'}))),
+            ('malformed JSON', '{broken json'),
+        ]
+        for case, contents in invalid_files:
+            with self.subTest(case=case):
+                self.load()
+                tick = Mock()
+
+                def make_router(config, github, t3, store):
+                    self.config_path.write_text(contents)
+                    return SimpleNamespace(config=config, repos={self.repo: config['repositories'][0]}, tick=tick)
+
+                with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'once']), \
+                        patch('planetry.__main__.GitHub'), patch('planetry.__main__.T3'), \
+                        patch('planetry.__main__.Store'), \
+                        patch('planetry.__main__.Router', side_effect=make_router):
+                    try:
+                        result = main()
+                    except ValueError:
+                        result = 1
+                tick.assert_not_called()
+                self.assertNotEqual(0, result)
 
     def test_registry_command_reads_latest_shared_plugin_context_without_network(self):
         self.load()
@@ -168,13 +235,107 @@ class ConfigTests(unittest.TestCase):
         router = Router(config, None, None)
         self.addCleanup(router.store.db.close)
         issue = {'repo': self.repo, 'number': 7, 'payload': json.dumps({
-            'title': 'Please add a plugin', 'body': 'A new gameplay feature', 'state': 'open'})}
+            'title': 'Please add a plugin', 'body': 'A new gameplay feature', 'state': 'open',
+            'user': {'id': 1, 'login': 'renamed-requester', 'type': 'User'}})}
         prompt = router.prompt(issue, [])
         self.assertIn('At the start of EVERY turn', prompt)
         self.assertIn(' registry\n', prompt)
         self.assertIn(str(self.control / 'docs/NEW_PLUGIN.md'), prompt)
         self.assertIn('only a snapshot', prompt)
         self.assertIn('onboarding helper', prompt)
+
+
+class ContextCliTests(unittest.TestCase):
+    setUp = ConfigTests.setUp
+    load = ConfigTests.load
+
+    def issue(self, user=None, **extra):
+        return dict({'id': 101, 'number': 7, 'title': 'Authorized request', 'body': 'Issue details',
+                     'state': 'open', 'user': {'id': 1, 'login': 'renamed-requester', 'type': 'User'}
+                     if user is None else user}, **extra)
+
+    def comment(self, comment_id, user, body):
+        return {'id': comment_id, 'body': body, 'user': user}
+
+    def invoke_context(self, issue, comments=(), *, actor_id=777):
+        self.load()
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'context',
+                                       '--repo', self.repo, '--issue', '7']), \
+                patch('planetry.__main__.GitHub') as factory, \
+                patch('planetry.__main__.T3') as t3, redirect_stdout(output):
+            github = factory.return_value
+            github.get_issue.return_value = issue
+            github.get_comments.return_value = list(comments)
+            github.me.return_value = {'id': actor_id, 'login': 'FlintSH', 'type': 'User'}
+            code = main()
+        self.assertEqual(0, code)
+        github.post_comment.assert_not_called()
+        github.close_issue.assert_not_called()
+        t3.return_value.call.assert_not_called()
+        return json.loads(output.getvalue())
+
+    def test_context_allows_renamed_identity_and_only_its_human_comments(self):
+        allowed = {'id': 1, 'login': 'another-rename', 'type': 'User'}
+        comments = [
+            self.comment(10, allowed, 'A legitimate follow-up'),
+            self.comment(11, {'id': 2, 'login': 'thebeeee', 'type': 'User'}, 'Copied login request'),
+            self.comment(12, {'id': 777, 'login': 'FlintSH', 'type': 'User'}, 'Owner request'),
+            self.comment(13, allowed, 'Copied marker <!-- planetry-agent:unrelated -->'),
+            self.comment(14, {'id': 1, 'login': 'thebeeee', 'type': 'Bot'}, 'Bot request'),
+        ]
+        result = self.invoke_context(self.issue(), comments)
+        self.assertEqual('untrusted GitHub issue content', result['source'])
+        self.assertEqual('renamed-requester', result['issue']['user']['login'])
+        self.assertEqual([10, 13], [comment['id'] for comment in result['human_comments']])
+
+    def test_context_discards_comments_with_missing_or_malformed_identity(self):
+        invalid_users = [None, {}, [], 'thebeeee', {'id': True, 'type': 'User'},
+                         {'id': '1', 'type': 'User'}, {'id': 1.0, 'type': 'User'},
+                         {'id': 1}, {'id': 1, 'type': None}, {'id': 1, 'type': 'Bot'}]
+        comments = [self.comment(index, user, 'Untrusted comment')
+                    for index, user in enumerate(invalid_users, 1)]
+        result = self.invoke_context(self.issue(), comments)
+        self.assertEqual([], result['human_comments'])
+
+    def test_context_excludes_actual_automation_reply_even_when_actor_is_allowed_user(self):
+        user = {'id': 1, 'login': 'renamed-requester', 'type': 'User'}
+        comments = [self.comment(10, user, 'Manual follow-up'),
+                    self.comment(11, user, 'Automation reply <!-- planetry-agent:saved -->')]
+        result = self.invoke_context(self.issue(), comments, actor_id=1)
+        self.assertEqual([10], [comment['id'] for comment in result['human_comments']])
+
+    def test_context_rejects_other_author_issue_before_fetching_comments(self):
+        for user in ({'id': 2, 'login': 'thebeeee', 'type': 'User'},
+                     {'id': 777, 'login': 'FlintSH', 'type': 'User'},
+                     {'id': True, 'type': 'User'}, {'id': '1', 'type': 'User'},
+                     {'id': 1, 'type': 'Bot'}, {}):
+            with self.subTest(user=user):
+                self.load()
+                output = io.StringIO()
+                with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'context',
+                                               '--repo', self.repo, '--issue', '7']), \
+                        patch('planetry.__main__.GitHub') as factory, \
+                        patch('planetry.__main__.T3'), redirect_stdout(output):
+                    github = factory.return_value
+                    github.get_issue.return_value = self.issue(user)
+                    with self.assertRaises(ValueError):
+                        main()
+                    github.get_comments.assert_not_called()
+                    github.post_comment.assert_not_called()
+                    github.close_issue.assert_not_called()
+                self.assertEqual('', output.getvalue())
+
+    def test_context_rejects_pull_requests_before_fetching_comments(self):
+        self.load()
+        with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'context',
+                                       '--repo', self.repo, '--issue', '7']), \
+                patch('planetry.__main__.GitHub') as factory, patch('planetry.__main__.T3'):
+            github = factory.return_value
+            github.get_issue.return_value = self.issue(pull_request={'url': 'https://api.github.com/pulls/7'})
+            with self.assertRaises(ValueError):
+                main()
+            github.get_comments.assert_not_called()
 
 
 if __name__ == '__main__':

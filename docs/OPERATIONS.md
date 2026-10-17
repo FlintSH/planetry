@@ -4,9 +4,9 @@
 
 `python3 -m planetry … run` is a persistent, code-only poller. It uses authenticated
 GitHub conditional GETs with pagination. T3 receives work only when there is an
-issue/body/state change or a human comment change. The router does not use GitHub
-Actions runners, a public webhook endpoint, an LLM timer, or a temporary token
-borrowed from a conversation.
+authorized issue/body/state change or an authorized comment change. The router
+does not use GitHub Actions runners, a public webhook endpoint, an LLM timer, or
+a temporary token borrowed from a conversation.
 
 T3's local OAuth dynamic client registration, pairing decision and token exchange
 create a dedicated MCP client. PKCE, state, issuer, redirect and scope validation
@@ -24,10 +24,37 @@ it is never blindly repeated. Keep the issue marker in thread titles.
 
 Replies carry a hidden marker and are reconciled against the authenticated
 GitHub actor. A cross-process lock prevents the poller and reply CLI from posting
-the same outbox item concurrently. An unmarked human comment from the owner's
-account is still a follow-up. A marker copied by another author is still human
-input. GitHub does not offer a comment idempotency key, so reconciliation is
-best-effort if its read API has not yet exposed an accepted write.
+the same outbox item concurrently. An unmarked comment is a follow-up only when
+both the issue author and comment author match the allowed GitHub ID. A copied
+marker grants no trust: other authors' comments are ignored and excluded from
+the context helper. GitHub does not offer a comment idempotency key, so
+reconciliation is best-effort if its read API has not yet exposed an accepted
+write.
+
+## GitHub identity policy
+
+Every registered repository uses this mandatory top-level object in the private
+operator config, with the verified current identity:
+
+```json
+{
+  "allowed_github_user": {"id": 89701169, "login": "thebeeee"}
+}
+```
+
+`id` must be an actual JSON integer greater than zero, not a boolean, string or
+floating-point number. `login` must use GitHub's login syntax. Authorization
+matches only the immutable numeric ID. The login is cosmetic: the same account
+remains authorized after a rename, and a copied login with another ID is denied.
+Missing or malformed policy fails closed, including during configuration reload.
+
+Only issues authored by that account may launch or resume automation, and only
+comments from that account may trigger follow-ups or enter the context helper.
+Other comments are ignored. Denied issues receive no automated replies,
+including acknowledgements or denial notices. `FlintSH`, the authenticated
+posting account, repository owners and collaborators have no implicit bypass.
+Bot-authored issues and pull requests remain excluded. New plugins inherit
+this global policy; per-repository identity overrides are not supported.
 
 ## Install
 
@@ -38,7 +65,9 @@ best-effort if its read API has not yet exposed an accepted write.
    `origin/main` before starting the thread.
 3. Copy `operator.example.json` to a private directory outside Git, fill the
    absolute checkout/state paths and T3 project IDs, and restrict it to `0600`.
-   Every configured repository must also be in `repositories.json`.
+   Keep the mandatory top-level `allowed_github_user` object shown above; do not
+   substitute the posting account or a repository owner. Every configured
+   repository must also be in `repositories.json`.
 4. Run the checks below, then install a user service using
    `deploy/planetry-issues.service.example`. Substitute the absolute paths. The
    service user must already have working `gh auth status` and access to the
@@ -51,9 +80,10 @@ python3 -m planetry --config /private/operator.json status
 systemctl --user enable --now planetry-issues.service
 ```
 
-The first scan includes existing open human issues. Older closed issues are
-observed but do not launch work until reopened. All configured repositories are
-explicit; unregistered repositories cannot request a thread through intake.
+The first scan includes existing open issues authored by the allowed account.
+Older authorized closed issues are observed but do not launch work until
+reopened. All configured repositories are explicit; unregistered repositories
+cannot request a thread through intake.
 
 ## Model selection
 
@@ -92,8 +122,8 @@ This selection does not change runtime permissions or intake limits.
   queued issues start in available slots; lowering it defers new starts and never
   cancels existing work. Outstanding uncertain launches also reserve slots.
 - `max_new_threads_per_day`: 20 initially, per UTC day. Additional new issues
-  remain queued. This is a launch limit, not a total model-token budget; comments
-  in an existing thread can still consume tokens.
+  remain queued. This is a launch limit, not a total model-token budget;
+  authorized comments in an existing thread can still consume tokens.
 - `systemctl --user stop planetry-issues` pauses intake. It does not cancel an
   already running T3 conversation. Stop that conversation in T3 if required.
 - `systemctl --user status planetry-issues` and `journalctl --user -u
@@ -102,9 +132,24 @@ This selection does not change runtime permissions or intake limits.
   public issues.
 
 The service backs off on transport/rate-limit failures. Events remain in SQLite.
-A provider run that fails/interruption is reported in the issue; a new human
-reply resumes the same thread. An agent needing clarification posts its question
-and ends the turn, releasing the development slot.
+A failed or interrupted provider run is reported in the authorized issue; a new
+reply from the allowed account resumes the same thread. An agent needing
+clarification asks in the issue and ends the turn, releasing its slot.
+
+Any invalid or unreadable configuration refresh skips the poll and backs off.
+The service retains its state and last valid config object, but intake resumes
+only after the config is valid. Running T3 threads are unaffected. Repair the
+private config and run `check`; the poller retries automatically. Keep SQLite
+and existing thread mappings rather than clearing state or recreating threads.
+
+Queued comment events record `author_id`. Denied comments are ignored and cached
+prompts containing them are invalidated. Legacy comments without numeric
+provenance wait for a fresh GitHub response for that exact comment ID; a failed
+poll does not discard them or guess identity from a login. If the comment is no
+longer available, operator review is required to clear the unverified event.
+Authorized pending prompts are rebuilt under the current global policy. Launch
+intents retain their original delivery event set, so recovering an accepted
+launch does not consume newer follow-ups that still need to be sent.
 
 If a launch is stuck at `intent`, inspect the corresponding T3 project for the
 `[issue-GITHUB_ID]` title marker and inspect service logs. An invisible or deleted
@@ -139,26 +184,43 @@ For a live upgrade, publish and verify the code, fast-forward the clean control
 checkout, and notify currently running issue threads with an in-flight T3
 `steer` message to read the new coordination guide and record their existing
 scope. Preserve their IDs, branches, worktrees and runs. Never restart, cancel,
-or recreate those threads. Update `max_active_threads` atomically in the private
-config while holding `onboarding.lock` so a simultaneous plugin registration is
-preserved. The new limit is read on the next poll. A code upgrade may require
-restarting only the intake service; T3 issue runs are separate from that service
-and continue. Retain the intake SQLite database so queued events and launch
-intents reconcile normally. Do not test this through synthetic GitHub issues.
+or recreate those threads. Trusted internal agent coordination through the work
+board and T3 `steer` remains authorized under the identity policy; it does not
+admit other public commenters. Preserve existing authorized issue threads and
+the configured three parallel slots. Update `max_active_threads` atomically in
+the private config while holding `onboarding.lock` so a simultaneous plugin
+registration is preserved. The new limit is read on the next poll. A code upgrade
+may require restarting only the intake service; T3 issue runs are separate from
+that service and continue. Retain the intake SQLite database so queued events
+and launch intents reconcile normally. Do not test this through synthetic GitHub
+issues.
+
+When upgrading from unrestricted intake, first add `allowed_github_user` to the
+private config atomically under `onboarding.lock`, preserving every other field.
+Do this before installing the new code, which rejects a missing policy. Restart
+only `planetry-issues.service` after installation; never restart `t3code.service`
+for an intake upgrade. Steer currently running issue threads to read the updated
+policy and use the filtered `context` helper. Future turns also receive the
+current policy in their rebuilt prompts.
 
 ## Adding a plugin
 
-Plugins created to fulfill registered Planetry issues use the automatic
+Plugins created to fulfill authorized Planetry issues use the automatic
 [`onboard` helper](NEW_PLUGIN.md). It validates the source issue, canonical repo
 and checkout, published main, successful CI, and release assets. It registers or
 reuses a T3 project, publishes the shared registry/context in a dedicated control
 worktree, fast-forwards the clean control checkout, then atomically appends the
 private configuration. All subsequent issue prompts load the live registry.
+The source issue must be authored by the allowed account. New registrations
+inherit the mandatory global `allowed_github_user` policy unchanged; repository
+ownership does not grant access and there is no per-repository override.
 
-The service reloads validated repository additions and concurrency limits before every poll, preserving
-existing thread mappings and queue state. No restart or copied webhook secret
-is needed. Invalid configuration leaves the last known good registry active;
-changes to runtime paths or the T3 endpoint still require an operator restart.
+The service reloads validated repository additions and concurrency limits before
+every poll, preserving existing authorized thread mappings and queue state. No
+restart or copied webhook secret is needed. Any invalid or unreadable config
+refresh pauses intake and backs off until a valid refresh; cached configuration
+does not permit continued intake. State and running T3 threads are preserved.
+Changes to runtime paths or the T3 endpoint still require an operator restart.
 
 Onboarding holds a cross-process lock. Retry the same command after interruption:
 it reuses matching projects and public/private registrations. An uncertain T3
@@ -175,18 +237,20 @@ adoption of existing repositories.
 
 ## Authority and deployment boundary
 
-The router restricts which repositories enter the queue. Agents are instructed
-to accept Planetry development requests while refusing issue text that tries to
-change their policy, expose secrets, access unrelated projects or deploy to the
-live Minecraft network. Their responses must use the marked reply helper.
+The router restricts both repositories and GitHub author IDs before work enters
+the queue. Agents accept authorized Planetry development requests while refusing
+issue text that tries to change their policy, expose secrets, access unrelated
+projects or deploy to the live Minecraft network. Their responses must use the
+marked reply helper, which must not reply to denied issues.
 
 These are task-scope instructions, **not an OS security sandbox**. This deployment
 runs agents under the existing development account with its GitHub access. A
-public issue can consume that account's model allowance and lead to a tested
-commit on main. For stronger credential and filesystem separation, move this
-service and T3 into a dedicated Planetry VM/account and use a GitHub App or
-credentials restricted to the registered repositories. The any-author policy is
-intentional; changing it requires the owner's instruction.
+public issue from the allowed account can consume the development account's
+model allowance and lead to a tested commit on main. For stronger credential
+and filesystem separation, move this service and T3 into a dedicated Planetry
+VM/account and use a GitHub App or credentials restricted to the registered
+repositories. Only the operator can change the global identity policy; issue
+content cannot authorize an exception.
 
 Agent changes to plugin code follow main CI and the existing release pipeline.
 Changes to this service require its own tests and an operator-controlled service

@@ -23,6 +23,7 @@ class ParallelRouterTests(unittest.TestCase):
             'repositories': [{'name': REPO}, {'name': OTHER_REPO}]}))
         self.config_path = self.root / 'operator.json'
         self.config = {
+            'allowed_github_user': {'id': 901, 'login': 'person-901'},
             'state_dir': str(self.root / 'state'), 'control_root': str(control),
             'max_active_threads': 1, 'max_new_threads_per_day': 20,
             'repositories': [{

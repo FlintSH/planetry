@@ -2,6 +2,7 @@
   "control_root": "/absolute/path/to/planetry",
   "state_dir": "/absolute/private/state/planetry",
   "t3_endpoint": "http://127.0.0.1:3773/mcp",
+  "allowed_github_user": {"id": 89701169, "login": "thebeeee"},
   "poll_seconds": 60,
   "max_active_threads": 3,
   "max_new_threads_per_day": 20,

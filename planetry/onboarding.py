@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 from datetime import datetime
 
+from .access import allowed_user
+
 
 def atomic_json(path, value):
     path = Path(path)
@@ -65,6 +67,8 @@ class Onboarder:
                 or issue.get('number') != number
                 or issue.get('html_url') != f'https://github.com/{repo}/issues/{number}'):
             raise ValueError('Onboarding requires an open human-authored Planetry issue')
+        if not allowed_user(self.config, issue.get('user')):
+            raise ValueError('Onboarding requires a source issue authored by the allowed GitHub user')
         return issue
 
     def _validate(self, repo, workspace, source_repo, source_issue):

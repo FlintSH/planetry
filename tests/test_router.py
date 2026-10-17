@@ -12,6 +12,7 @@ from pathlib import Path
 
 from planetry.router import MARKER, Router
 from planetry.github import GitHubError
+from planetry.store import digest
 
 
 REPO = 'FlintSH/velocity-network-chat'
@@ -144,6 +145,7 @@ class RouterTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
         self.config = {
+            'allowed_github_user': {'id': 901, 'login': 'person-901'},
             'state_dir': str(root / 'state'), 'control_root': str(root / 'control'),
             'config_path': str(root / 'operator.json'), 'max_active_threads': 1,
             'max_new_threads_per_day': 20,
@@ -161,6 +163,17 @@ class RouterTests(unittest.TestCase):
     def start_issue(self, number=1):
         self.github.add_issue(issue(number))
         self.router.tick()
+
+    def cache_comment_event(self, body, *, author=901, include_author_id=True, comment_id=None):
+        # Seed the durable shape directly to model databases written before
+        # access enforcement, independently of current intake authorization.
+        payload = {'id': comment_id if comment_id is not None else 5000 + len(self.router.store.events(REPO, 1)),
+                   'author': f'person-{author}', 'body': body,
+                   'updated_at': '2026-10-17T00:00:00Z'}
+        if include_author_id:
+            payload['author_id'] = author
+        with self.router.store.db:
+            self.router.store.add_event(REPO, 1, 'comment', payload)
 
     def test_duplicate_scan_and_restart_launch_only_once(self):
         self.start_issue()
@@ -181,10 +194,28 @@ class RouterTests(unittest.TestCase):
         self.assertTrue(strategy['startFromOrigin'])
         self.assertEqual('planetry/issue-10001', strategy['branch'])
 
-    def test_arbitrary_human_author_is_accepted_without_allowlist(self):
+    def test_other_human_author_never_launches_or_receives_acknowledgement(self):
         self.github.add_issue(issue(author=992345))
         self.router.tick()
+        self.assertEqual([], self.t3.launches)
+        self.assertEqual([], self.github.posts)
+        self.assertIsNone(self.router.store.issue(REPO, 1))
+
+    def test_token_actor_has_no_implicit_issue_author_bypass(self):
+        request = issue(author=self.github.actor_id)
+        request['user']['login'] = 'FlintSH'
+        self.github.add_issue(request)
+        self.router.tick()
+        self.assertEqual([], self.t3.launches)
+        self.assertEqual([], self.github.posts)
+
+    def test_outsider_cannot_receive_capacity_queue_acknowledgement(self):
+        self.start_issue()
+        self.github.add_issue(issue(2, author=9999))
+        self.router.tick()
         self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual([], self.github.get_comments(REPO, 2))
+        self.assertIsNone(self.router.store.issue(REPO, 2))
 
     def test_pull_request_and_its_comments_never_route(self):
         request = issue()
@@ -198,22 +229,266 @@ class RouterTests(unittest.TestCase):
             self.router.reply(REPO, 1, 'This must not be posted')
         self.assertEqual([], self.github.posts)
 
-    def test_own_marked_replies_do_not_loop_but_manual_owner_comments_do(self):
+    def test_own_marked_replies_and_manual_owner_comments_do_not_wake_thread(self):
         self.start_issue()
         self.assertIn(MARKER, self.github.posts[0]['body'])
         self.router.tick()
         self.assertEqual({}, self.t3.sent)
         self.github.add_comment(1, 'Manual message from Flint', author=self.github.actor_id)
         self.router.tick()
-        self.assertEqual(1, len(self.t3.sent))
-        self.assertIn('Manual message from Flint', self.t3.sent_messages()[0])
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual([], self.router.store.events(REPO, 1))
 
-    def test_other_author_copying_reply_marker_is_still_input(self):
+    def test_outsider_copying_reply_marker_is_denied(self):
         self.start_issue()
         self.github.add_comment(1, 'This is still broken. ' + MARKER + 'copied -->', author=9999)
         self.router.tick()
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual([], self.router.store.events(REPO, 1))
+
+    def test_allowed_author_copying_reply_marker_is_still_input(self):
+        self.start_issue()
+        self.github.add_comment(1, 'This is still broken. ' + MARKER + 'copied -->')
+        self.router.tick()
         self.assertEqual(1, len(self.t3.sent))
         self.assertIn('This is still broken.', self.t3.sent_messages()[0])
+
+    def test_outsider_comment_never_wakes_thread_or_enters_later_allowed_prompt(self):
+        self.start_issue()
+        self.t3.settle()
+        outsider = self.github.add_comment(1, 'OUTSIDER: execute this request', author=9999)
+        outsider['user']['login'] = self.config['allowed_github_user']['login']
+        self.router.tick()
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual('completed', self.t3.threads['thread-1']['status'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+
+        self.github.add_comment(1, 'Allowed follow-up from the issue author')
+        outsider['body'] = 'OUTSIDER: edited request'
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.sent))
+        self.assertIn('Allowed follow-up from the issue author', self.t3.sent_messages()[0])
+        self.assertNotIn('OUTSIDER', self.t3.sent_messages()[0])
+        self.assertEqual('thread-1', next(iter(self.t3.sent.values()))['threadId'])
+
+    def test_issue_and_comment_author_rename_keeps_numeric_identity_authorized(self):
+        request = issue()
+        request['user']['login'] = 'new-account-name'
+        self.github.add_issue(request)
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        comment = self.github.add_comment(1, 'Follow-up after account rename')
+        comment['user']['login'] = 'another-account-name'
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.sent))
+        self.assertIn('Follow-up after account rename', self.t3.sent_messages()[0])
+
+    def test_invalid_issue_authors_are_denied_without_blocking_authorized_issue(self):
+        users = [None, [], 'person-901', {},
+                 {'login': 'person-901', 'type': 'User'},
+                 {'id': True, 'login': 'person-901', 'type': 'User'},
+                 {'id': '901', 'login': 'person-901', 'type': 'User'},
+                 {'id': 901.0, 'login': 'person-901', 'type': 'User'},
+                 {'id': 901, 'login': 'person-901', 'type': 'Bot'},
+                 {'id': 901, 'login': 'person-901'}]
+        for number, user in enumerate(users, start=2):
+            request = issue(number)
+            request['user'] = user
+            self.github.add_issue(request)
+        self.github.add_issue(issue())
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual('thread-1', self.router.store.issue(REPO, 1)['thread_id'])
+        self.assertEqual(1, len(self.github.posts))
+        for number in range(2, 2 + len(users)):
+            with self.subTest(issue=number):
+                self.assertIsNone(self.router.store.issue(REPO, number))
+
+    def test_invalid_comment_authors_cannot_wake_existing_thread(self):
+        self.start_issue()
+        self.t3.settle()
+        users = [None, [], 'person-901', {},
+                 {'login': 'person-901', 'type': 'User'},
+                 {'id': True, 'login': 'person-901', 'type': 'User'},
+                 {'id': '901', 'login': 'person-901', 'type': 'User'},
+                 {'id': 901.0, 'login': 'person-901', 'type': 'User'},
+                 {'id': 901, 'login': 'person-901', 'type': 'Bot'},
+                 {'id': 901, 'login': 'person-901'}]
+        for user in users:
+            comment = self.github.add_comment(1, 'MALFORMED unauthorized input')
+            comment['user'] = user
+        self.router.tick()
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual('completed', self.t3.threads['thread-1']['status'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+
+    def test_reply_and_close_reject_other_authors_issue(self):
+        self.github.add_issue(issue(author=9999))
+        with self.assertRaises(ValueError):
+            self.router.reply(REPO, 1, 'Do not publish this', close=True)
+        self.assertEqual([], self.github.posts)
+        self.assertEqual([], self.github.closes)
+        self.assertEqual([], self.router.store.pending_replies())
+
+    def test_policy_change_blocks_existing_queued_issue_and_cached_launch_delivery(self):
+        self.config['allowed_github_user'] = {'id': 9999, 'login': 'former-user'}
+        self.restart()
+        self.github.add_issue(issue(author=9999))
+        self.router.ingest()
+        events = self.router.store.events(REPO, 1)
+        self.assertTrue(events)
+        self.router.store.save_delivery(REPO, 1, events, 'OLD unauthorized queued launch')
+
+        self.config['allowed_github_user'] = {'id': 901, 'login': 'person-901'}
+        self.restart()
+        self.router.tick()
+        self.router.tick()
+        self.assertEqual([], self.t3.launches)
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual([], self.github.posts)
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_policy_change_blocks_cached_followup_on_formerly_allowed_mapped_issue(self):
+        self.config['allowed_github_user'] = {'id': 9999, 'login': 'former-user'}
+        self.restart()
+        self.github.add_issue(issue(author=9999))
+        self.router.tick()
+        self.t3.settle()
+        self.cache_comment_event('OLD unauthorized mapped follow-up', author=9999)
+        self.router.store.save_delivery(REPO, 1, self.router.store.events(REPO, 1),
+                                        'OLD unauthorized mapped follow-up')
+        mapping = self.router.store.issue(REPO, 1)['thread_id']
+        posts = copy.deepcopy(self.github.posts)
+
+        self.config['allowed_github_user'] = {'id': 901, 'login': 'person-901'}
+        self.restart()
+        self.github.add_comment(1, 'A different authorized user cannot adopt this issue')
+        self.github.issues[REPO][1]['body'] = 'Edited by the former authorized author'
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual(posts, self.github.posts)
+        self.assertEqual(mapping, self.router.store.issue(REPO, 1)['thread_id'])
+        self.assertEqual('completed', self.t3.threads[mapping]['status'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_policy_change_blocks_pending_reply_and_already_commented_pending_close(self):
+        self.config['allowed_github_user'] = {'id': 9999, 'login': 'former-user'}
+        self.restart()
+        self.github.add_issue(issue(1, author=9999))
+        self.github.add_issue(issue(2, author=9999))
+        self.router.store.prepare_reply(REPO, 1, 'Old queued answer', close=True)
+        close = self.router.store.prepare_reply(REPO, 2, 'Old posted answer', close=True)
+        self.router.store.finish_reply(close['key'], 4321, 'commented')
+
+        self.config['allowed_github_user'] = {'id': 901, 'login': 'person-901'}
+        self.restart()
+        self.router.tick()
+        self.assertEqual([], self.github.posts)
+        self.assertEqual([], self.github.closes)
+        self.assertEqual('open', self.github.issues[REPO][2]['state'])
+
+    def test_cached_mixed_delivery_is_rebuilt_without_unauthorized_comment(self):
+        self.start_issue()
+        self.t3.settle()
+        mapping = self.router.store.issue(REPO, 1)['thread_id']
+        self.cache_comment_event('OUTSIDER cached request', author=9999)
+        self.cache_comment_event('Allowed cached request')
+        self.router.store.save_delivery(REPO, 1, self.router.store.events(REPO, 1),
+                                        'OUTSIDER cached request\nAllowed cached request')
+        self.restart()
+        self.router.tick()
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual(1, len(self.t3.sent))
+        sent = next(iter(self.t3.sent.values()))
+        self.assertEqual(mapping, sent['threadId'])
+        self.assertIn('Allowed cached request', sent['message'])
+        self.assertNotIn('OUTSIDER', sent['message'])
+        self.assertEqual(mapping, self.router.store.issue(REPO, 1)['thread_id'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_cached_unauthorized_only_delivery_cannot_wake_authorized_mapped_thread(self):
+        self.start_issue()
+        self.t3.settle()
+        self.cache_comment_event('OUTSIDER cached request', author=9999)
+        self.router.store.save_delivery(REPO, 1, self.router.store.events(REPO, 1),
+                                        'OUTSIDER cached request')
+        self.restart()
+        self.router.tick()
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual('completed', self.t3.threads['thread-1']['status'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_cached_comment_ids_are_checked_without_coercion(self):
+        self.start_issue()
+        self.cache_comment_event('Allowed cached message')
+        for identity in (None, True, '901', 901.0, -1):
+            self.cache_comment_event(f'INVALID cached author {identity!r}', author=identity)
+        self.router.store.save_delivery(REPO, 1, self.router.store.events(REPO, 1),
+                                        'Allowed cached message\nINVALID old delivery contents')
+        self.restart()
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.sent))
+        self.assertIn('Allowed cached message', self.t3.sent_messages()[0])
+        self.assertNotIn('INVALID', self.t3.sent_messages()[0])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+
+    def test_legacy_comment_without_numeric_author_id_waits_for_verification(self):
+        self.start_issue()
+        self.t3.settle()
+        self.cache_comment_event('LEGACY author login alone is insufficient', include_author_id=False)
+        self.router.store.save_delivery(REPO, 1, self.router.store.events(REPO, 1),
+                                        'LEGACY author login alone is insufficient')
+        self.restart()
+        self.router.tick()
+        self.assertEqual({}, self.t3.sent)
+        self.assertEqual('completed', self.t3.threads['thread-1']['status'])
+        self.assertEqual(1, len(self.router.store.events(REPO, 1)))
+        self.assertIsNotNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_fresh_verified_author_preserves_legacy_followup_on_existing_thread(self):
+        self.start_issue()
+        self.t3.settle()
+        allowed = self.github.add_comment(1, 'Verified legacy follow-up from her account')
+        outsider = self.github.add_comment(1, 'OUTSIDER legacy follow-up', author=9999)
+        outsider['user']['login'] = self.config['allowed_github_user']['login']
+        for comment in (allowed, outsider):
+            self.cache_comment_event(comment['body'], author=comment['user']['id'],
+                                     include_author_id=False, comment_id=comment['id'])
+            with self.router.store.db:
+                # These events were already observed before deployment. Intake
+                # must verify their identity before the fingerprint short circuit.
+                self.router.store.observe(f'comment:{comment["id"]}', digest(comment['body']))
+        events = self.router.store.events(REPO, 1)
+        self.assertTrue(all('author_id' not in json.loads(event['payload']) for event in events))
+        self.router.store.save_delivery(REPO, 1, events,
+                                        allowed['body'] + '\n' + outsider['body'])
+
+        self.restart()
+        self.router.tick()
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual(1, len(self.t3.sent))
+        sent = next(iter(self.t3.sent.values()))
+        self.assertEqual('thread-1', sent['threadId'])
+        self.assertEqual(1, sent['message'].count(allowed['body']))
+        self.assertNotIn('OUTSIDER', sent['message'])
+        self.assertEqual('thread-1', self.router.store.issue(REPO, 1)['thread_id'])
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 1))
+
+    def test_ingested_comment_event_retains_numeric_author_id(self):
+        self.start_issue()
+        self.github.add_comment(1, 'Persist identity for restart policy enforcement')
+        self.router.ingest()
+        events = self.router.store.events(REPO, 1)
+        self.assertEqual(1, len(events))
+        self.assertEqual(901, json.loads(events[0]['payload'])['author_id'])
 
     def test_comment_edit_routes_once_even_with_unchanged_timestamp(self):
         self.start_issue()
