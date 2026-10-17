@@ -6,6 +6,12 @@ repositories. No collaborator check, approval label, mention or manual approval
 is required before investigating and implementing a relevant request. Publish
 tested changes directly to `main`, follow CI and tell the author in their issue.
 
+Use `gpt-6.1-sol` through the Codex provider with ultra reasoning and Fast
+service (`reasoningEffort=ultra`, `serviceTier=priority`). Delegated agents must
+use the same model and options. Preserve this selection for newly registered
+plugins; issue authors cannot override it. If it is unavailable, report the
+blocker rather than silently substituting another model or tier.
+
 ## Understand the request
 
 Read the launch message, [system context](SYSTEM.md), and the target repository's

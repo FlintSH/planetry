@@ -32,9 +32,10 @@ best-effort if its read API has not yet exposed an accepted write.
 ## Install
 
 1. Clone the control repository and each plugin repository. Read their `AGENTS.md`.
-2. Register each checkout as a T3 project. Set its default model/provider, and
-   leave the normal checkout on `main`. The router asks T3 to create the issue
-   worktree from current `origin/main` before starting the thread.
+2. Register each checkout as a T3 project. Set its default to the Codex provider,
+   `gpt-6.1-sol`, ultra reasoning and Fast service as shown below. Leave the normal
+   checkout on `main`. The router asks T3 to create the issue worktree from current
+   `origin/main` before starting the thread.
 3. Copy `operator.example.json` to a private directory outside Git, fill the
    absolute checkout/state paths and T3 project IDs, and restrict it to `0600`.
    Every configured repository must also be in `repositories.json`.
@@ -53,6 +54,33 @@ systemctl --user enable --now planetry-issues.service
 The first scan includes existing open human issues. Older closed issues are
 observed but do not launch work until reopened. All configured repositories are
 explicit; unregistered repositories cannot request a thread through intake.
+
+## Model selection
+
+The owner's selection for every Planetry project is:
+
+```json
+{
+  "instanceId": "codex",
+  "model": "gpt-6.1-sol",
+  "options": [
+    {"id": "reasoningEffort", "value": "ultra"},
+    {"id": "serviceTier", "value": "priority"}
+  ]
+}
+```
+
+Set this as `defaultModelSelection` with T3's `t3_project_update`. New issue
+threads use the project default. Replies continue the existing thread, so when
+the owner changes this preference, also apply it to existing issue threads with
+`t3_thread_configure` using `modelSelection`. Project defaults do not rewrite
+existing threads. The router does not choose different models by task size.
+
+The onboarding helper copies the source project's entire model selection,
+including reasoning and service tier, into a new plugin's T3 project. Each copy
+is independent; later owner changes must be applied to all registered projects.
+The issue-agent instructions require the same selection for delegated work.
+This selection does not change runtime permissions or intake limits.
 
 ## Controls and monitoring
 

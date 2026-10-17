@@ -70,7 +70,8 @@ must exactly match its published main. The helper verifies a successful push run
 of its release workflow, the release's actual tag commit, and fully uploaded,
 nonempty JAR and `SHA256SUMS` assets for that commit.
 
-The helper then registers the T3 project with the source project's model, commits
+The helper then registers the T3 project with the source project's provider,
+model and options, including ultra reasoning and Fast service, commits
 and pushes its registry entry and `docs/plugins/<name>.json` context on control
 main, and activates intake through an atomic private config update. The poller
 picks it up on its next cycle without a restart. The control checkout must be

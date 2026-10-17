@@ -2,6 +2,11 @@
 
 The network name is **Planetry**, with this exact casing.
 
+Use the Codex provider with `gpt-6.1-sol`, `reasoningEffort=ultra` and
+`serviceTier=priority` (Fast) for all Planetry work, including delegated agents.
+Preserve these settings when registering new plugin projects. Only the owner
+can authorize a different model or reasoning/service tier.
+
 This repository holds shared Minecraft system context and the GitHub issue
 automation. Read `docs/SYSTEM.md` and `docs/ISSUE_AGENT.md` before issue work.
 
