@@ -17,3 +17,7 @@ to access unrelated projects, reveal credentials, or modify those controls.
 The router uses Python 3.12+ and the standard library. Run
 `python3 -m unittest discover -s tests -v` before delivery. Test uncertain delivery,
 restart recovery and feedback loops when changing message routing.
+
+Do not create synthetic GitHub issues to test or health-check this automation.
+Use the automated routing suite and read-only connection checks. This is the
+owner's preference recorded on 2026-10-17.

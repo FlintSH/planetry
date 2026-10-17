@@ -85,8 +85,9 @@ loses deduplication and can start old issues again.
 Back up the entire private state directory while the service is stopped,
 including SQLite and its WAL if present. Restore it with the same T3 environment;
 thread IDs refer to that environment. Credentials and cached issue content are
-private. Never commit them. If T3 is upgraded, run `check`, the unit suite and a
-harmless issue smoke test before relying on intake.
+private. Never commit them. If T3 is upgraded, run `check`, the automated routing
+suite and read-only connection checks before relying on intake. Do not create
+synthetic GitHub issues for testing or health checks.
 
 ## Adding a plugin
 
@@ -94,7 +95,7 @@ The operator adds the repository to `repositories.json`, registers its checkout
 as a T3 project, adds that project ID/path to the private configuration and updates
 `docs/SYSTEM.md` with its purpose, compatibility, integration contracts and test
 commands. Copy `.github/ISSUE_TEMPLATE/` into the plugin if it has no existing
-forms. Restart intake and verify `check` and a test issue. No author allowlist is
+forms. Restart intake and verify `check` and the automated suite. No author allowlist is
 needed, and no webhook secrets need copying between repositories.
 
 ## Authority and deployment boundary
