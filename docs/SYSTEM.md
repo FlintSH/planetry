@@ -124,6 +124,10 @@ saved gifts; `planetry.admin.sendmail` gates individual/offline and all-online
 sends. Mail console commands execute on the claiming backend after a durable
 claim and Inventory Sync readiness. Uncertain effects require operator review
 and are never retried automatically. No proxy update is required for mail.
+Player/staff text uses MiniMessage files in `lang/` with English/German defaults
+and a configurable language selection. Hotbar shortcuts use only Nexo IDs
+`quest_book` and `novalink` by default; unavailable items wait without a vanilla
+material fallback. See the plugin README for upgrade migration and configuration.
 
 ## Integration between plugins
 
