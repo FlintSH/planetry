@@ -52,6 +52,10 @@ coordination remains available, and existing authorized threads are preserved.
 Publishing a release does **not** install it on the Minecraft network. The
 network operator controls production servers and player data.
 
+For the proposed `dev` → `main` workflow for shared server files and updates
+on restart, see the [server configuration deployment plan](docs/SERVER_CONFIG_PLAN.md).
+This is a design proposal; no server updater is installed.
+
 ## Repositories
 
 | Repository | Responsibility |
