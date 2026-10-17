@@ -1,0 +1,30 @@
+name: Request a feature or change
+description: Describe how you would like PlanetRy to work.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what you want players or staff to be able to do. Technical details are optional.
+        The PlanetRy assistant will reply here, ask if it needs more information, and publish tested changes when ready.
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like to change?
+      placeholder: "I would like staff to see which server a player is on."
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: What should it look like for a player or staff member?
+      description: A command example, expected message, or a short story is useful.
+  - type: textarea
+    id: access
+    attributes:
+      label: Who should be able to use it?
+      description: Everyone, staff, a particular rank, or another group? Leave blank if this does not apply.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Include any settings you want to control, related plugins, or screenshots.

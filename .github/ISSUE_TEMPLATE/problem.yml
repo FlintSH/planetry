@@ -1,0 +1,37 @@
+name: Something is not working
+description: Tell the PlanetRy development assistant what happened.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe this in your own words. You do not need to know how the plugin works.
+        The PlanetRy assistant will investigate and reply here. Answer its questions by adding a comment to this issue.
+        Issues are public: remove passwords, tokens and private connection details from logs or screenshots.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What were you or your players trying to do, and what happened instead?
+      placeholder: "I used /tpa from survival to skyblock. The request was accepted, but I stayed where I was."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+      placeholder: "I expected to arrive next to the other player."
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen again?
+      description: Include the command or actions, and whether it happens every time. It is fine if you do not know.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Which servers or plugins were involved?
+      description: Server names and Minecraft/plugin versions help if you have them. You can leave this blank.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Anything else that helps?
+      description: Paste a redacted error message, attach a screenshot, or describe when it started.

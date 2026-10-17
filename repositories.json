@@ -1,0 +1,20 @@
+{
+  "system": "planetry",
+  "repositories": [
+    {
+      "name": "FlintSH/velocity-network-chat",
+      "role": "Velocity chat, presence, network commands and Paper teleport bridge",
+      "branch": "main"
+    },
+    {
+      "name": "FlintSH/network-inventory-sync",
+      "role": "Paper/Purpur inventory synchronization through MariaDB or PostgreSQL",
+      "branch": "main"
+    },
+    {
+      "name": "FlintSH/planetry",
+      "role": "Shared system documentation and issue automation",
+      "branch": "main"
+    }
+  ]
+}

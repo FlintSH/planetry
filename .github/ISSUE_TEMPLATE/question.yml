@@ -1,0 +1,19 @@
+name: Ask a question
+description: Get help setting up or using the PlanetRy plugins.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The PlanetRy assistant will answer in this issue. You can keep the conversation going in the comments.
+        Do not include passwords, tokens or private connection details.
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like help with?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What have you tried so far?
+      description: Optional. Mention the plugin or server involved if you know it.

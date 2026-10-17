@@ -1,0 +1,13 @@
+{
+  "control_root": "/absolute/path/to/planetry",
+  "state_dir": "/absolute/private/state/planetry",
+  "t3_endpoint": "http://127.0.0.1:3773/mcp",
+  "poll_seconds": 60,
+  "max_active_threads": 1,
+  "max_new_threads_per_day": 20,
+  "repositories": [
+    {"name": "FlintSH/velocity-network-chat", "workspace": "/absolute/path/to/velocity-network-chat", "project_id": "T3-project-id"},
+    {"name": "FlintSH/network-inventory-sync", "workspace": "/absolute/path/to/network-inventory-sync", "project_id": "T3-project-id"},
+    {"name": "FlintSH/planetry", "workspace": "/absolute/path/to/planetry", "project_id": "T3-project-id"}
+  ]
+}

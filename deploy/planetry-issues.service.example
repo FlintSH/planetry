@@ -1,0 +1,18 @@
+[Unit]
+Description=PlanetRy GitHub issue intake for T3 Code
+After=network-online.target t3code.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/planetry
+ExecStart=/usr/bin/python3 -m planetry --config /private/operator.json run
+Environment=PATH=/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
