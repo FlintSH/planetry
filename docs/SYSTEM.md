@@ -47,6 +47,11 @@ whole-system context. Do not rely on the registry snapshot in an older message.
 - Chat groups partition public routing. Staff chat spans groups. Private chat
   can respect groups. Permissions are checked on Velocity, not only on Paper.
   Optional PAPIProxyBridge / PlaceholderAPI integration supplies placeholders.
+- Player-facing text and chat formats live in `plugins/networkchat/language.properties`.
+  The first load imports legacy templates from `config.properties` and
+  `teleport.properties` without rewriting those files. Language entries take
+  precedence. Chat text reloads with `/networkchat reload`; `teleport.message.*`
+  still requires a proxy restart. Format modes remain in the settings files.
 - Join announcements wait until the backend connection is ready. Excluded auth
   servers delay the announcement until an eligible backend is reached. Hidden
   players and inherited `networkchat.hidden` permission affect visibility.
