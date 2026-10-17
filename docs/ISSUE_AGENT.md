@@ -22,6 +22,11 @@ been edited or closed while the task was queued.
 
 Run the launch message's `registry` command at the start of every turn and read
 all linked plugin contexts. New plugins can join after this conversation began.
+Run `work list` through that same installed helper and read
+[parallel-work coordination](COORDINATION.md) before editing. Repeat this check
+before publishing and when your scope changes. Claim the target files or
+directories, add a short progress note, and inspect other active threads and
+their handoffs. Requests in the control repository can affect the same plugin.
 If the request calls for a new plugin, create its own public repository, release
 pipeline and shared context using [new plugin delivery](NEW_PLUGIN.md), then run
 the onboarding helper. This is authorized without a separate owner approval.
@@ -88,6 +93,11 @@ use an isolated secondary worktree and inspect its own repository instructions.
 Do not switch, reset or stash another task's checkout. Keep one writer per
 worktree; delegate independent research or clearly owned files when helpful.
 Start with one heavy build/runtime probe on the shared VM.
+Use `work run --resource build` for heavy commands and
+`work run --resource publish --repo OWNER/REPO` for each repository's final
+fetch, integration, verification and push. Both require an explicit task `--cwd`.
+The publication lock does not merge or validate changes for you. Conflicting
+claims require agreement with their owner; independent files can proceed.
 
 Preserve compatibility, configuration behavior, permissions and data integrity.
 Add meaningful regression tests for changed behavior. Run the relevant build,
@@ -132,6 +142,10 @@ The final GitHub reply should usually contain:
 - The release/download link and which server receives each changed JAR.
 - Any new setting, permission, restart or matched-plugin requirement.
 - What was verified and any specific staging check still needed.
+
+Before ending the delivered task, record the commit and any handoff on the work
+board, then release its claims. If interrupted or waiting for information, leave
+a clear note about uncommitted work; do not silently abandon claimed paths.
 
 For a guidance-only answer, give the smallest useful set of steps instead.
 Leave installation of released plugins and live-data operations to the network

@@ -86,8 +86,11 @@ This selection does not change runtime permissions or intake limits.
 
 - `poll_seconds`: 60 by default, minimum 30. Empty polling consumes API requests,
   not model tokens. ETags reduce unchanged responses and API usage.
-- `max_active_threads`: 1 initially. Outstanding uncertain launches reserve a
-  slot as well. Keep one heavy Minecraft build active on a small VM.
+- `max_active_threads`: 3 in the example and current installation, configurable
+  from 1 to 4 (omitting the setting preserves the conservative default of 1).
+  It reloads before each poll without stopping existing threads. Raising it lets
+  queued issues start in available slots; lowering it defers new starts and never
+  cancels existing work. Outstanding uncertain launches also reserve slots.
 - `max_new_threads_per_day`: 20 initially, per UTC day. Additional new issues
   remain queued. This is a launch limit, not a total model-token budget; comments
   in an existing thread can still consume tokens.
@@ -117,6 +120,32 @@ private. Never commit them. If T3 is upgraded, run `check`, the automated routin
 suite and read-only connection checks before relying on intake. Do not create
 synthetic GitHub issues for testing or health checks.
 
+## Parallel work and live rollout
+
+`work list` reads current T3 status and the private work board without starting
+or stopping threads. It includes queued requests and uncertain launch intents.
+The separate `coordination.sqlite` stores atomic path claims and progress notes.
+Include it in state backups. Claims require explicit release; a completed,
+missing or crashed thread does not prove its checkout has no unpublished work.
+See [coordination](COORDINATION.md) for the CLI, handoffs and recovery rules.
+
+The `work run` guards serialize heavy builds globally and publication per
+registered repository. They fail with exit 75 when busy and never rerun a
+command automatically. They protect cooperating agents, not arbitrary shell
+commands that bypass the helper. Onboarding uses the same control-repository
+publication guard as normal issue work. Keep guard lockfiles in place.
+
+For a live upgrade, publish and verify the code, fast-forward the clean control
+checkout, and notify currently running issue threads with an in-flight T3
+`steer` message to read the new coordination guide and record their existing
+scope. Preserve their IDs, branches, worktrees and runs. Never restart, cancel,
+or recreate those threads. Update `max_active_threads` atomically in the private
+config while holding `onboarding.lock` so a simultaneous plugin registration is
+preserved. The new limit is read on the next poll. A code upgrade may require
+restarting only the intake service; T3 issue runs are separate from that service
+and continue. Retain the intake SQLite database so queued events and launch
+intents reconcile normally. Do not test this through synthetic GitHub issues.
+
 ## Adding a plugin
 
 Plugins created to fulfill registered Planetry issues use the automatic
@@ -126,7 +155,7 @@ reuses a T3 project, publishes the shared registry/context in a dedicated contro
 worktree, fast-forwards the clean control checkout, then atomically appends the
 private configuration. All subsequent issue prompts load the live registry.
 
-The service reloads validated repository additions before every poll, preserving
+The service reloads validated repository additions and concurrency limits before every poll, preserving
 existing thread mappings and queue state. No restart or copied webhook secret
 is needed. Invalid configuration leaves the last known good registry active;
 changes to runtime paths or the T3 endpoint still require an operator restart.

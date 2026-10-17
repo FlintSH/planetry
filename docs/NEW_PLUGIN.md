@@ -9,6 +9,9 @@ original issue until delivery is complete.
 
 1. Read the live registry, shared system context and relevant plugin sources.
    Confirm whether the feature belongs in an existing plugin or needs a new one.
+   Read the work board and announce the proposed repository in your note. Claim
+   its future `docs/plugins/<name>.json` path in the control repository so another
+   issue does not independently create the same plugin.
 2. Create a separate Git repository and public GitHub repository under the same
    owner as the source issue. Use an independent checkout outside existing plugin
    checkouts. Do not adopt or overwrite an unrelated existing repository.
@@ -27,6 +30,12 @@ original issue until delivery is complete.
    relevant tests and publish the exact tested JARs with `SHA256SUMS` after success.
    Set the release's `target_commitish` to the exact full commit SHA, including for
    prereleases. Verify the run and released bytes before proceeding.
+
+Before a plugin is registered, use the control repository's publication guard
+for its first publish, and the global build guard for heavy checks. Release the
+publication guard before running `onboard`; that helper acquires the same guard
+for the shared registry update. After onboarding, use the new repository's own
+guard and path claims. See [coordination](COORDINATION.md).
 
 The new repository inherits all registered plugins' context through its agent
 instructions and generated issue prompts. Publishing its descriptor into the

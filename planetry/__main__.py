@@ -65,6 +65,24 @@ def main():
     for name in ('run', 'once', 'status', 'check'):
         commands.add_parser(name)
     commands.add_parser('registry', help='Read the current repository map and plugin context')
+    work = commands.add_parser('work', help='Coordinate parallel issue work privately')
+    work_commands = work.add_subparsers(dest='work_command', required=True)
+    work_commands.add_parser('list', help='Show live issue threads, worktrees, claims and notes')
+    for name in ('claim', 'note', 'release'):
+        child = work_commands.add_parser(name)
+        child.add_argument('--repo', required=True, help='Repository containing the assigned issue')
+        child.add_argument('--issue', required=True, type=int)
+        if name != 'note':
+            child.add_argument('--target-repo', required=name == 'claim', help='Repository being edited')
+            child.add_argument('--path', action='append', required=name == 'claim', dest='paths',
+                               help='Repository-relative file or directory; repeat for multiple paths')
+        if name in ('claim', 'note'):
+            child.add_argument('--note-file', required=name == 'note', help='Private UTF-8 progress/handoff file')
+    run = work_commands.add_parser('run', help='Run one command under a build or publication lock')
+    run.add_argument('--resource', required=True, choices=('build', 'publish'))
+    run.add_argument('--repo', help='Registered target repository; required for publish')
+    run.add_argument('--cwd', required=True, help='Task worktree to run the command in')
+    run.add_argument('argv', nargs=argparse.REMAINDER, help='Command argv after --; no implicit shell')
     onboard = commands.add_parser('onboard', help='Register a delivered plugin created from a Planetry issue')
     for flag in ('repo', 'workspace', 'source-repo'):
         onboard.add_argument('--' + flag, required=True)
@@ -82,6 +100,8 @@ def main():
     config = load_config(args.config)
     state = Path(config['state_dir'])
     store = Store(state / 'router.sqlite')
+    if args.command == 'work':
+        return work_command(args, config, store)
     if args.command == 'registry':
         manifest = json.loads((Path(config['control_root']) / 'repositories.json').read_text())
         contexts = []
@@ -175,6 +195,36 @@ def main():
             while not stopped and time.monotonic() < deadline:
                 time.sleep(min(1, max(0, deadline - time.monotonic())))
     return 0
+
+
+def work_command(args, config, store):
+    from .coordination import Coordination, CoordinationError
+    board = Coordination(config, store)
+    t3 = None
+    try:
+        if args.work_command == 'list':
+            t3 = T3(Path(config['state_dir']), endpoint=config.get('t3_endpoint', 'http://127.0.0.1:3773/mcp'))
+            result = board.snapshot(t3)
+        elif args.work_command == 'claim':
+            note = Path(args.note_file).read_text(encoding='utf-8') if args.note_file else ''
+            result = board.claim(args.repo, args.issue, args.target_repo, args.paths, note=note)
+        elif args.work_command == 'note':
+            result = board.note(args.repo, args.issue, Path(args.note_file).read_text(encoding='utf-8'))
+        elif args.work_command == 'release':
+            result = board.release(args.repo, args.issue, target_repo=args.target_repo, paths=args.paths)
+        else:
+            argv = args.argv[1:] if args.argv[:1] == ['--'] else args.argv
+            return board.run_locked(args.resource, args.repo, argv, cwd=args.cwd)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except CoordinationError as error:
+        print(json.dumps(error.as_dict(), ensure_ascii=False, indent=2))
+        return 75  # Temporary contention: no requested command or claim ran.
+    finally:
+        if t3:
+            t3.close()
+        board.close()
+        store.db.close()
 
 
 if __name__ == '__main__':

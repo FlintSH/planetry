@@ -32,9 +32,9 @@ def atomic_json(path, value):
             os.unlink(temporary)
 
 
-def _git(workspace, *args):
+def _git(workspace, *args, pass_fds=()):
     result = subprocess.run(['git', '-C', str(workspace), *args], capture_output=True,
-                            text=True, timeout=120)
+                            text=True, timeout=120, pass_fds=pass_fds)
     if result.returncode:
         # Git stderr can contain authenticated URLs. Keep it out of public replies.
         raise RuntimeError('Git operation failed; inspect the onboarding checkout locally')
@@ -173,17 +173,26 @@ class Onboarder:
         return project['id']
 
     def _publish(self, repo, descriptor):
+        from .coordination import resource_lock
+        control_repo = self.config.get('control_repository', 'FlintSH/planetry')
+        with resource_lock(self.config, 'publish', control_repo) as lock_fd:
+            self._publish_locked(repo, descriptor, lock_fd=lock_fd)
+
+    def _publish_locked(self, repo, descriptor, *, lock_fd):
+        def git(*args):
+            return _git(*args, pass_fds=(lock_fd,))
+
         # A new owned worktree on each attempt starts from actual remote main.
         # An earlier successful push is recognized by the desired files, so a
         # lost response never causes a second registration commit.
-        if _git(self.root, 'status', '--porcelain') or _git(self.root, 'branch', '--show-current') != 'main':
+        if git(self.root, 'status', '--porcelain') or git(self.root, 'branch', '--show-current') != 'main':
             raise ValueError('Control checkout must be clean on main for safe context refresh')
-        _git(self.root, 'fetch', 'origin', 'main')
-        _git(self.root, 'merge', '--ff-only', 'origin/main')
+        git(self.root, 'fetch', 'origin', 'main')
+        git(self.root, 'merge', '--ff-only', 'origin/main')
         parent = self.state / 'onboarding-worktrees'
         parent.mkdir(mode=0o700, exist_ok=True)
         checkout = Path(tempfile.mkdtemp(prefix='context-', dir=parent))
-        _git(self.root, 'worktree', 'add', '--detach', str(checkout), 'origin/main')
+        git(self.root, 'worktree', 'add', '--detach', str(checkout), 'origin/main')
         try:
             manifest_path = checkout / 'repositories.json'
             manifest = json.loads(manifest_path.read_text())
@@ -198,17 +207,17 @@ class Onboarder:
             context.parent.mkdir(parents=True, exist_ok=True)
             manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
             context.write_text(json.dumps(descriptor, indent=2, ensure_ascii=False) + '\n')
-            _git(checkout, 'add', 'repositories.json', context_path)
-            if _git(checkout, 'diff', '--cached', '--name-only'):
-                _git(checkout, 'commit', '-m', f'Register {repo} in Planetry system context')
+            git(checkout, 'add', 'repositories.json', context_path)
+            if git(checkout, 'diff', '--cached', '--name-only'):
+                git(checkout, 'commit', '-m', f'Register {repo} in Planetry system context')
                 # No force push. A competing main update leaves this retryable.
-                _git(checkout, 'push', 'origin', 'HEAD:main')
-            _git(self.root, 'fetch', 'origin', 'main')
-            _git(self.root, 'merge', '--ff-only', 'origin/main')
+                git(checkout, 'push', 'origin', 'HEAD:main')
+            git(self.root, 'fetch', 'origin', 'main')
+            git(self.root, 'merge', '--ff-only', 'origin/main')
         finally:
             # Keep failed/unpublished work recoverable for operator inspection.
-            if not _git(checkout, 'status', '--porcelain') and _git(checkout, 'rev-parse', 'HEAD') == _git(self.root, 'rev-parse', 'origin/main'):
-                _git(self.root, 'worktree', 'remove', str(checkout))
+            if not git(checkout, 'status', '--porcelain') and git(checkout, 'rev-parse', 'HEAD') == git(self.root, 'rev-parse', 'origin/main'):
+                git(self.root, 'worktree', 'remove', str(checkout))
 
     def run(self, repo, workspace, source_repo, source_issue):
         workspace = Path(workspace)

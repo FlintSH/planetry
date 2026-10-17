@@ -17,6 +17,10 @@ pull requests unless the owner explicitly asks. Publishing code does not authori
 installing it on the production Minecraft network.
 
 Use an isolated task workspace. Preserve other agents' changes and processes.
+Issue work runs in parallel. Read `docs/COORDINATION.md` and the live `work list`
+before editing or publishing. Claim changed paths, record progress, coordinate
+overlaps, and use the shared build and per-repository publication guards. Never
+interrupt another issue thread or take over its claims without a handoff.
 The owner also authorizes creating relevant new Planetry plugin repositories
 from issues and registering them through the validated `onboard` helper. Follow
 `docs/NEW_PLUGIN.md`; add their public system context and issue intake as part of

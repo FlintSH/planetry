@@ -31,9 +31,11 @@ and pull requests do not trigger this service. Agent comments are identified as
 Planetry automation, even though the current installation posts through Flint's
 GitHub account.
 
-The initial limits are one active issue thread and 20 new threads per UTC day.
-Additional work stays queued; these limits are configurable. Follow-up comments
-reuse their existing thread. A long build can delay another issue. Closing an
+The configured limits are three active issue threads and 20 new threads per UTC
+day. Each issue has its own worktree. Agents share a private work board and claim
+files to coordinate overlapping changes. Heavy builds run one at a time, and
+publishing is serialized per repository. Additional work stays queued; these
+limits are configurable. Follow-up comments reuse their existing thread. Closing an
 issue stops queued work and tells an active agent to stop; it cannot undo a push
 that already happened.
 
@@ -70,4 +72,5 @@ python3 -m compileall -q planetry
 Runtime state and credentials belong outside Git. See
 [`operator.example.json`](operator.example.json), the
 [operator guide](docs/OPERATIONS.md), and the
-[issue agent instructions](docs/ISSUE_AGENT.md).
+[issue agent instructions](docs/ISSUE_AGENT.md). The
+[coordination guide](docs/COORDINATION.md) explains claims, handoffs and resource guards.

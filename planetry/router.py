@@ -172,6 +172,16 @@ and run the onboarding helper after its first verified release. This adds its
 T3 project, issue intake and public system context automatically.
 At the start of EVERY turn, read the LIVE registry and all plugin contexts:
 {command} registry
+Also read the private live work board before editing and before publishing:
+{command} work list
+Follow {root / 'docs/COORDINATION.md'}: claim the files/directories you will change,
+record progress and handoffs, and coordinate overlapping changes with their owner.
+Your claim owner is --repo {repo} --issue {number}; --target-repo is the plugin
+you are editing, which may differ from the issue repository. Use the global build
+lock for heavy builds and the target repository's publish lock for integration
+and pushing. Keep all work in this issue's separate worktrees. Release your claims
+when delivered or when deliberately handing work over; never release another
+issue's claims or interrupt its thread.
 The registry embedded above is only a snapshot. New plugins may have been added
 since this thread began. Do not change credentials, runtime permissions or
 unrelated repository scope when onboarding a new plugin.
@@ -299,6 +309,9 @@ END GITHUB ISSUE DATA
                        'when changes are ready. You can reply in this issue to add details.')
             # Intent is committed before the non-idempotent launch call.
             self.store.update_issue(repo, number, launch_state='intent', launch_title=title, launch_at=time.time())
+            # Reserve immediately, including if T3 accepts the launch but returns
+            # a malformed response which per-issue isolation catches this tick.
+            active_ids.add(f'intent:{repo}:{number}')
             self.store.set_meta('launches:' + day, launches + 1)
             result = self.t3.call('t3_thread_launch', {
                 'projectId': project_id, 'title': title, 'message': delivery['message'],
@@ -306,6 +319,10 @@ END GITHUB ISSUE DATA
                 'workspaceStrategy': {'type': 'worktree', 'baseRef': 'main',
                     'branch': f'planetry/issue-{issue["github_id"]}', 'startFromOrigin': True}})
         thread_id = result['threadId']
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            # An accepted launch without a usable identity is still uncertain.
+            # Keep its intent, events and capacity reservation for reconciliation.
+            raise ValueError('T3 launch returned an invalid thread identity')
         self.store.link_launch(repo, number, thread_id,
                                result.get('runId', result.get('latestRunId')), delivery['key'])
         active_ids.discard(f'intent:{repo}:{number}')
