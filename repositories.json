@@ -15,6 +15,12 @@
       "name": "FlintSH/planetry",
       "role": "Shared system documentation and issue automation",
       "branch": "main"
+    },
+    {
+      "name": "FlintSH/planetry-core",
+      "role": "PlanetryCore: persistent player game levels, 100 game XP per level, staff commands, configurable money/console rewards, XP-bar display and PlaceholderAPI placeholders.",
+      "branch": "main",
+      "context": "docs/plugins/planetry-core.json"
     }
   ]
 }
