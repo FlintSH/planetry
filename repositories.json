@@ -21,6 +21,12 @@
       "role": "PlanetryCore: persistent game levels, 100 game XP per level, configurable rewards, XP-bar display, PlaceholderAPI placeholders and durable network mail.",
       "branch": "main",
       "context": "docs/plugins/planetry-core.json"
+    },
+    {
+      "name": "FlintSH/planetry-items",
+      "role": "PlanetryItems: configurable custom items, rarity glyphs, lore, Minecraft attributes, oxygen, equipment, durability and level/skill requirements.",
+      "branch": "main",
+      "context": "docs/plugins/planetry-items.json"
     }
   ]
 }
