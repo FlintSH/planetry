@@ -3,8 +3,9 @@
   "repositories": [
     {
       "name": "FlintSH/velocity-network-chat",
-      "role": "Velocity chat, presence, network commands and Paper teleport bridge",
-      "branch": "main"
+      "role": "PlanetryVelocity: network chat, presence, teleports and PlanetryItems grants with its Paper backend companion",
+      "branch": "main",
+      "context": "docs/plugins/planetry-velocity.json"
     },
     {
       "name": "FlintSH/network-inventory-sync",

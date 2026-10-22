@@ -15,7 +15,7 @@ status from GitHub; do not assume an example version here is the latest.
 
 | Repository | Purpose | Installed on |
 | --- | --- | --- |
-| [velocity-network-chat](https://github.com/FlintSH/velocity-network-chat) | Network chat, staff chat, private messaging, join/leave messages, player lookup, teleport requests and the Paper teleport companion | Main JAR on Velocity; companion JAR on participating Paper backends |
+| [velocity-network-chat](https://github.com/FlintSH/velocity-network-chat) | PlanetryVelocity: network chat, player lookup, teleports and PlanetryItems grants with PlanetryVelocity-Backend | Main JAR on Velocity; companion JAR on participating Paper backends |
 | [network-inventory-sync](https://github.com/FlintSH/network-inventory-sync) | Shared player inventories, database ownership, snapshots and recovery | Every participating Paper/Purpur backend |
 | [planetry](https://github.com/FlintSH/planetry) | Shared context, repository registry and GitHub issue automation | Development environment; never the Minecraft server |
 
@@ -32,7 +32,9 @@ above describes the original plugins; `repositories.json` and linked
 integration contracts and validation commands. New plugins receive this same
 whole-system context. Do not rely on the registry snapshot in an older message.
 
-## Network Chat
+## PlanetryVelocity
+
+The downloads and plugin display names are **PlanetryVelocity** and **PlanetryVelocity-Backend**. The repository remains `velocity-network-chat`; the proxy retains its `networkchat` internal ID/settings path and existing permissions. See the [live plugin context](plugins/planetry-velocity.json) for current grant and compatibility contracts. Replace old JARs during upgrade. The backend copies an absent new config from the legacy NetworkChatBridge directory without overwriting either config.
 
 - Designed for several backend servers behind one Velocity proxy. There is no
   distributed proxy directory or Redis transport. Cross-server does not mean
@@ -61,11 +63,11 @@ whole-system context. Do not rely on the registry snapshot in an older message.
 - `/tpa` (alias `/tpask`), `/tpaccept`, `/tpdeny` and `/tpcancel` implement player
   requests. `/tp <player>` is a staff self-teleport requiring
   `networkchat.teleport.staff` by default.
-- Exact location teleports require `networkchat-paper-bridge-*.jar` on each
+- Exact location teleports require `PlanetryVelocity-Backend-*.jar` on each
   participating Paper/Purpur **26.1.2 / Java 25** backend. The bridge and proxy
   use the same private shared secret. The proxy's separate
   `plugins/networkchat/teleport.properties` and the bridge's
-  `plugins/NetworkChatBridge/config.yml` require restart after changes.
+  `plugins/PlanetryVelocity-Backend/config.yml` require restart after changes.
 - The bridge authenticates messages, limits replay and expiry, loads destination
   chunks asynchronously, and rechecks sessions before a cancellable teleport.
   Preserve these checks. A server switch may succeed even if the later location
@@ -163,3 +165,9 @@ authorize installing it on the live network or touching live player data.
 Reply in the GitHub issue with the result, download link, any changed setup and
 clear next steps. The issue author should not need access to T3, this VM or a
 programming tool to follow the conversation. See [issue-agent instructions](ISSUE_AGENT.md).
+
+## Network item commands
+
+PlanetryVelocity routes `/pitems give <player> <id> [amount]` and `/planetryitems give` to the online recipient's current backend, requiring `planetry.admin.items` on Velocity. Names complete across this proxy and item IDs come from the selected backend catalog. Other subcommands and backend console grants remain backend-local. Matching PlanetryVelocity-Backend and PlanetryItems versions are required for the grant API. Each backend still loads its own recursive `plugins/PlanetryItems/items/` definitions and language; proxy distribution is not provided.
+
+Items use the existing teleport shared secret/server allowlist independently of teleport enablement, plus restart-only `items.properties` and backend `items-enabled`. Authenticated short-lived packets are durably reserved before mutation, and Inventory Sync readiness is rechecked. Full inventories reject atomically. Missing acknowledgements mean unconfirmed delivery; no automatic retry occurs. Preserve the replay journal, inspect the recipient inventory before manual retries, and validate real clients/two-backend transport on staging.
