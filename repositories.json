@@ -28,6 +28,12 @@
       "role": "PlanetryItems: configurable custom items, rarity glyphs, lore, Minecraft attributes, oxygen, equipment, durability and level/skill requirements.",
       "branch": "main",
       "context": "docs/plugins/planetry-items.json"
+    },
+    {
+      "name": "FlintSH/planetry-items-velocity",
+      "role": "PlanetryItems-Velocity: central authoring and authenticated distribution of item definitions and language to PlanetryItems Paper backends.",
+      "branch": "main",
+      "context": "docs/plugins/planetry-items-velocity.json"
     }
   ]
 }
