@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from planetry.__main__ import load_config, main, refresh_router
 from planetry.router import Router
@@ -243,6 +243,82 @@ class ConfigTests(unittest.TestCase):
         self.assertIn(str(self.control / 'docs/NEW_PLUGIN.md'), prompt)
         self.assertIn('only a snapshot', prompt)
         self.assertIn('onboarding helper', prompt)
+        self.assertIn(f'reopen --repo {self.repo} --issue 7 --comment COMMENT_ID', prompt)
+        self.assertIn('Answer guidance-only questions while closed', prompt)
+        self.assertIn('Respect cancellation or a later closure', prompt)
+
+    def test_check_reports_normalized_plural_policy_with_both_accounts(self):
+        del self.config['allowed_github_user']
+        self.config['allowed_github_users'] = [
+            {'id': 87043024, 'login': 'FlintSH'}, {'id': 89701169, 'login': 'thebeeee'}]
+        self.load()
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'check']), \
+                patch('planetry.__main__.GitHub') as github, patch('planetry.__main__.T3') as t3, \
+                redirect_stdout(output):
+            github.return_value.me.return_value = {'id': 87043024, 'login': 'FlintSH'}
+            t3.return_value.call.return_value = {'runtimeMode': 'full-access'}
+            self.assertEqual(0, main())
+        result = json.loads(output.getvalue())
+        self.assertEqual(self.config['allowed_github_users'], result['allowed_github_users'])
+        self.assertNotIn('allowed_github_user', result)
+
+
+class ReopenCliTests(unittest.TestCase):
+    setUp = ConfigTests.setUp
+    load = ConfigTests.load
+
+    def test_reopen_passes_integer_issue_and_comment_to_helper_and_prints_result(self):
+        self.load()
+        for result in ('sent', 'ignored'):
+            with self.subTest(result=result):
+                output = io.StringIO()
+                with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'reopen',
+                                               '--repo', self.repo, '--issue', '7', '--comment', '456']), \
+                        patch('planetry.__main__.GitHub') as github, patch('planetry.__main__.T3') as t3, \
+                        patch('planetry.__main__.Store') as store, \
+                        patch('planetry.__main__.Router') as factory, redirect_stdout(output):
+                    router = factory.return_value
+                    router.repos = {self.repo: self.config['repositories'][0]}
+                    router.reopen.return_value = result
+                    self.assertEqual(0, main())
+                router.reopen.assert_called_once_with(self.repo, 7, 456)
+                self.assertIs(type(router.reopen.call_args.args[1]), int)
+                self.assertIs(type(router.reopen.call_args.args[2]), int)
+                self.assertEqual({'reopen': result}, json.loads(output.getvalue()))
+                factory.assert_called_once_with(ANY, github.return_value,
+                                                t3.return_value, store.return_value)
+                router.reply.assert_not_called()
+                router.tick.assert_not_called()
+                t3.return_value.call.assert_not_called()
+                github.return_value.reopen_issue.assert_not_called()
+
+    def test_reopen_requires_an_explicit_numeric_comment_argument(self):
+        for suffix in ([], ['--comment', 'not-a-number']):
+            with self.subTest(suffix=suffix):
+                with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'reopen',
+                                               '--repo', self.repo, '--issue', '7', *suffix]), \
+                        patch('planetry.__main__.GitHub') as github, \
+                        patch('planetry.__main__.T3') as t3, patch('sys.stderr', io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        main()
+                self.assertEqual(2, raised.exception.code)
+                github.assert_not_called()
+                t3.assert_not_called()
+
+    def test_reopen_rejects_unknown_repository_or_invalid_issue_before_helper(self):
+        self.load()
+        for repo, number in (('Other/repository', '7'), (self.repo, '0'), (self.repo, '-1')):
+            with self.subTest(repo=repo, number=number):
+                with patch.object(sys, 'argv', ['planetry', '--config', str(self.config_path), 'reopen',
+                                               '--repo', repo, '--issue', number, '--comment', '456']), \
+                        patch('planetry.__main__.GitHub'), patch('planetry.__main__.T3'), \
+                        patch('planetry.__main__.Store'), patch('planetry.__main__.Router') as factory:
+                    router = factory.return_value
+                    router.repos = {self.repo: self.config['repositories'][0]}
+                    with self.assertRaises(ValueError):
+                        main()
+                    router.reopen.assert_not_called()
 
 
 class ContextCliTests(unittest.TestCase):
@@ -304,6 +380,21 @@ class ContextCliTests(unittest.TestCase):
                     self.comment(11, user, 'Automation reply <!-- planetry-agent:saved -->')]
         result = self.invoke_context(self.issue(), comments, actor_id=1)
         self.assertEqual([10], [comment['id'] for comment in result['human_comments']])
+
+    def test_context_includes_both_accounts_and_filters_marked_posting_actor(self):
+        del self.config['allowed_github_user']
+        self.config['allowed_github_users'] = [
+            {'id': 87043024, 'login': 'FlintSH'}, {'id': 89701169, 'login': 'thebeeee'}]
+        flint = {'id': 87043024, 'login': 'renamed-owner', 'type': 'User'}
+        bee = {'id': 89701169, 'login': 'renamed-requester', 'type': 'User'}
+        comments = [self.comment(10, flint, 'A manual owner request'),
+                    self.comment(11, bee, 'An authorized cross-account follow-up'),
+                    self.comment(12, flint, 'Automation <!-- planetry-agent:saved -->'),
+                    self.comment(13, {'id': 9999, 'login': 'FlintSH', 'type': 'User'}, 'Copied login')]
+        for author in (flint, bee):
+            with self.subTest(author=author):
+                result = self.invoke_context(self.issue(author), comments, actor_id=87043024)
+                self.assertEqual([10, 11], [comment['id'] for comment in result['human_comments']])
 
     def test_context_rejects_other_author_issue_before_fetching_comments(self):
         for user in ({'id': 2, 'login': 'thebeeee', 'type': 'User'},

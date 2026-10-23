@@ -89,13 +89,15 @@ def main():
     for flag in ('repo', 'workspace', 'source-repo'):
         onboard.add_argument('--' + flag, required=True)
     onboard.add_argument('--source-issue', required=True, type=int)
-    for name in ('reply', 'context'):
+    for name in ('reply', 'context', 'reopen'):
         child = commands.add_parser(name)
         child.add_argument('--repo', required=True)
         child.add_argument('--issue', required=True, type=int)
         if name == 'reply':
             child.add_argument('--body-file', required=True)
             child.add_argument('--close', action='store_true')
+        if name == 'reopen':
+            child.add_argument('--comment', required=True, type=int)
     args = parser.parse_args()
     os.umask(0o077)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -133,12 +135,15 @@ def main():
             args.repo, Path(args.workspace), args.source_repo, args.source_issue), indent=2))
         return 0
     router = Router(config, github, t3, store)
-    if args.command in ('reply', 'context'):
+    if args.command in ('reply', 'context', 'reopen'):
         if args.repo not in router.repos or args.issue < 1:
             raise ValueError('Unknown repository or invalid issue number')
         if args.command == 'reply':
             result = router.reply(args.repo, args.issue, Path(args.body_file).read_text(), args.close)
             print(json.dumps({'comment_id': result}))
+        elif args.command == 'reopen':
+            result = router.reopen(args.repo, args.issue, args.comment)
+            print(json.dumps({'reopen': result}))
         else:
             issue = github.get_issue(args.repo, args.issue)
             if 'pull_request' in issue:
@@ -154,7 +159,7 @@ def main():
     if args.command == 'check':
         capabilities = t3.call('orchestrator_capabilities', {})
         print(json.dumps({'github_actor': github.me()['login'],
-            'allowed_github_user': require_policy(config),
+            'allowed_github_users': require_policy(config),
             't3_runtime_mode': capabilities['runtimeMode'],
             'repositories': list(router.repos)}, indent=2))
         if capabilities['runtimeMode'] != 'full-access':

@@ -1,8 +1,9 @@
 """Small, authenticated GitHub REST client used by the Planetry issue bridge.
 
 No caller-controlled URL is ever allowed to move the Authorization header to a
-different host. ETag responses retain their pagination metadata, so an unchanged
-first page never hides a changed second page. Mutations are never retried here.
+different host. ETag responses retain their pagination metadata, and full cached
+terminal list pages are revalidated without ETags to discover newly added pages.
+Mutations are never retried here.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import tempfile
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from email.utils import parsedate_to_datetime
 
@@ -230,6 +231,19 @@ class GitHub:
         return None
 
     @staticmethod
+    def _full_terminal_page(cache: dict[str, Any], url: str) -> bool:
+        payload = cache["payload"]
+        if cache.get("next_url") is not None or not isinstance(payload, list) or not payload:
+            return False
+        sizes = parse_qs(urlsplit(url).query, keep_blank_values=True).get("per_page", ["30"])
+        # Ambiguous/invalid sizes cannot establish that the page is partial.
+        # Bound integer parsing too, since URLs and cached state are untrusted.
+        if len(sizes) != 1 or not re.fullmatch(r"[0-9]{1,3}", sizes[0]):
+            return True
+        size = int(sizes[0])
+        return not 1 <= size <= 100 or len(payload) >= size
+
+    @staticmethod
     def _retry_delay(headers: Any, default: float = 60) -> float:
         delays = [default]
         retry_after = headers.get("Retry-After")
@@ -261,7 +275,9 @@ class GitHub:
         if body is not None:
             headers["Content-Type"] = "application/json"
             data = json.dumps(body, ensure_ascii=True).encode("utf-8")
-        if cache:
+        # GitHub can return 304 without Link when a full terminal page's body
+        # is unchanged, even though a newly appended page now exists.
+        if cache and not self._full_terminal_page(cache, url):
             headers["If-None-Match"] = cache["etag"]
         request = Request(url, data=data, headers=headers, method=method)
         try:
@@ -434,3 +450,6 @@ class GitHub:
 
     def close_issue(self, repo: str, number: int) -> dict[str, Any]:
         return self._object("PATCH", f"/repos/{_repository(repo)}/issues/{_number(number)}", {"state": "closed"})
+
+    def reopen_issue(self, repo: str, number: int) -> dict[str, Any]:
+        return self._object("PATCH", f"/repos/{_repository(repo)}/issues/{_number(number)}", {"state": "open"})

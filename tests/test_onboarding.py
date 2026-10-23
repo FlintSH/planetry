@@ -206,6 +206,19 @@ class OnboardingTests(unittest.TestCase):
         self.assertTrue(any(args.get('cursor') == 1 for tool, args in self.t3.calls
                             if tool == 't3_project_list'))
 
+    def test_second_author_can_onboard_and_both_identities_are_preserved(self):
+        first = self.config.pop('allowed_github_user')
+        users = [first, {'id': 902, 'login': 'FlintSH'}]
+        self.config['allowed_github_users'] = users
+        self.config_path.write_text(json.dumps(self.config))
+        self.github.issue['user'] = {'id': 902, 'login': 'renamed-owner', 'type': 'User'}
+        result = self.run_onboarding()
+        self.assertEqual(PLUGIN, result['name'])
+        current = json.loads(self.config_path.read_text())
+        self.assertEqual(users, current['allowed_github_users'])
+        self.assertNotIn('allowed_github_user', current)
+        self.assertEqual([SOURCE, PLUGIN], [r['name'] for r in current['repositories']])
+
     def test_closed_source_issue_is_rejected(self):
         self.github.issue['state'] = 'closed'
         self.assert_rejected()

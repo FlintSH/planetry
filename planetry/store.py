@@ -39,6 +39,10 @@ class Store:
                 body TEXT NOT NULL, close_issue INTEGER NOT NULL, comment_id INTEGER,
                 state TEXT NOT NULL DEFAULT 'pending');
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS reopens (
+                key TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL,
+                comment_id INTEGER NOT NULL, fingerprint TEXT NOT NULL, closed_at TEXT,
+                state TEXT NOT NULL DEFAULT 'pending');
         """)
 
     def meta(self, key, default=None):
@@ -103,7 +107,7 @@ class Store:
                 if issue['state'] == 'open' or (old and (old['thread_id'] or old['launch_state'] == 'intent')):
                     self.add_event(repo, number, 'issue', content)
 
-    def ingest_comment(self, repo, number, comment, actor_id):
+    def ingest_comment(self, repo, number, comment, actor_id, *, watch_closed=False):
         if not isinstance(comment, dict) or not isinstance(comment.get('user'), dict):
             raise ValueError('Malformed GitHub comment author')
         if comment.get('user', {}).get('type') == 'Bot':
@@ -123,9 +127,9 @@ class Store:
         self.verify_comment_author(repo, number, comment)
         with self.db:
             if self.observe(f'comment:{comment["id"]}', digest(body)):
-                # Ignore a historical closed issue until reopened. A mapped closed
-                # issue still receives follow-ups (e.g. the fix did not work).
-                if json.loads(issue['payload'])['state'] == 'open' or issue['thread_id']:
+                # Baseline historical comments on untracked closed issues once;
+                # later comments/edits must be triaged even without a mapping.
+                if json.loads(issue['payload'])['state'] == 'open' or issue['thread_id'] or watch_closed:
                     self.add_event(repo, number, 'comment', {
                         'id': comment['id'], 'author': comment['user']['login'],
                         'author_id': comment['user']['id'],
@@ -262,3 +266,17 @@ class Store:
 
     def mappings(self):
         return [dict(r) for r in self.db.execute('SELECT * FROM issues WHERE thread_id IS NOT NULL')]
+
+    def prepare_reopen(self, repo, number, comment_id, fingerprint, closed_at):
+        key = digest(['reopen', repo, number, comment_id, fingerprint])
+        with self.db:
+            self.db.execute('INSERT OR IGNORE INTO reopens(key,repo,number,comment_id,fingerprint,closed_at) VALUES(?,?,?,?,?,?)',
+                            (key, repo, number, comment_id, fingerprint, closed_at))
+        return dict(self.db.execute('SELECT * FROM reopens WHERE key=?', (key,)).fetchone())
+
+    def finish_reopen(self, key, state='sent'):
+        with self.db:
+            self.db.execute('UPDATE reopens SET state=? WHERE key=?', (state, key))
+
+    def pending_reopens(self):
+        return [dict(r) for r in self.db.execute("SELECT * FROM reopens WHERE state='pending'")]

@@ -2,7 +2,8 @@
 
 Shared context and development automation for the Planetry Minecraft network.
 
-**Open an issue from the authorized GitHub account (`thebeeee`, ID `89701169`).
+**Open an issue from either authorized GitHub account: `FlintSH` (ID `87043024`)
+or `thebeeee` (ID `89701169`).
 The development agent replies there, works on the request, tests changes and
 publishes them. You do not need T3 Code or access to the VM.**
 
@@ -13,41 +14,52 @@ publishes them. You do not need T3 Code or access to the VM.**
 Describe what happened, what you wanted to happen and which servers were
 involved. Screenshots and redacted errors help. Never post passwords, tokens or
 database connection strings. Reply to the agent's questions in the same issue.
-Reopen a resolved issue if you need another code change.
+You can also reply after it is closed: the agent reopens it when your new request
+needs work. Questions can be answered while it stays closed, and thanks do not
+start another implementation.
 
 ## How it works
 
 1. A small service checks the registered GitHub repositories every 60 seconds.
    Empty checks do not run an AI model.
-2. A new issue from the authorized account starts its own T3 conversation and
+2. A new issue from an authorized account starts its own T3 conversation and
    isolated repository worktree. The agent reads the
    [whole system context](docs/SYSTEM.md) and current code.
-3. For an authorized issue, comments from the allowed account, edits and reopen
-   events return to that same conversation. The agent asks questions and posts
-   progress in the GitHub issue.
+3. For an authorized issue, comments from either allowed account, edits and
+   reopen events return to that same conversation and worktree, including new
+   replies after the issue is closed or its thread has settled. The agent reads
+   the reply and uses the validated `reopen` helper for actionable follow-up
+   work. It answers questions on the closed issue and leaves thanks alone.
 4. Relevant changes are tested, committed and pushed to `main`. The agent checks
    the existing release pipeline and replies with the result and download link.
 
-Only GitHub account ID **89701169**, currently displayed as `thebeeee`, may trigger
-issue automation. The mandatory global `allowed_github_user` policy matches the
-immutable ID; its login is cosmetic. Renaming that account keeps access, while a
-copied login with another ID is denied. Missing or malformed policy fails closed.
-Only that account's issues and comments are accepted. Other comments are ignored
-and excluded from the context helper; denied issues receive no automated replies.
-`FlintSH`, repository owners and collaborators have no implicit bypass. No
-approval label or special mention is needed for authorized requests. Bot-created
-issues and pull requests do not trigger this service. Agent comments are
-identified as Planetry automation, even though the current installation posts
-through Flint's GitHub account.
+Only the two listed human GitHub accounts may trigger issue automation. The
+mandatory global `allowed_github_users` policy matches their immutable numeric
+IDs; logins are cosmetic. Renaming an account keeps access, while a copied login
+with another ID is denied. Missing or malformed policy fails closed. The
+canonical list contains objects with exactly `id` and `login`. The legacy
+single-object `allowed_github_user` is accepted only when the plural key is
+absent; supplying both keys is rejected. Only issues authored by an allowed
+account and comments from either allowed account are accepted. Other comments
+are ignored and excluded from the context helper; denied issues receive no
+automated replies. `FlintSH` has explicit ID-based access. Repository ownership,
+collaborator status and the posting role grant no implicit bypass. No approval
+label or special mention is needed. Bots, pull requests and marked automation
+comments do not trigger work. Agent comments are identified as Planetry
+automation, even though the current installation posts through Flint's account.
 
 The configured limits are three active issue threads and 20 new threads per UTC
 day. Each issue has its own worktree. Agents share a private work board and claim
 files to coordinate overlapping changes. Heavy builds run one at a time, and
 publishing is serialized per repository. Additional work stays queued; these
 limits are configurable. Authorized follow-up comments reuse their existing
-thread. Closing an authorized issue stops queued work and tells an active agent
-to stop; it cannot undo a push that already happened. Trusted internal agent
-coordination remains available, and existing authorized threads are preserved.
+thread and worktree. Closing an authorized issue cancels unfinished work; it
+cannot undo a push that already happened. A later authorized actionable reply
+can start follow-up work through the validated reopen helper. Cancellation
+requests are respected. Deployment does not wake every resolved historical
+issue: previously observed comments remain the baseline while new replies are
+watched. Trusted internal agent coordination remains available, and existing
+authorized threads are preserved.
 
 Publishing a release does **not** install it on the Minecraft network. The
 network operator controls production servers and player data.
@@ -85,8 +97,11 @@ python3 -m compileall -q planetry
 ```
 
 Runtime state and credentials belong outside Git. The private operator config
-must include the global `allowed_github_user` object shown in the example, with
-an actual positive integer `id` and a valid GitHub display `login`. See
+must include the global `allowed_github_users` list shown in the example. Each
+object has exactly two fields: an actual positive integer `id` and a valid
+GitHub display `login`. Issue agents use the installed control checkout's helper
+and private config from their task prompt as the source of current context and policy,
+rather than a stale helper in their issue worktree. See
 [`operator.example.json`](operator.example.json), the
 [operator guide](docs/OPERATIONS.md), and the
 [issue agent instructions](docs/ISSUE_AGENT.md). The

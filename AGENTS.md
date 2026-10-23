@@ -10,15 +10,30 @@ can authorize a different model or reasoning/service tier.
 This repository holds shared Minecraft system context and the GitHub issue
 automation. Read `docs/SYSTEM.md` and `docs/ISSUE_AGENT.md` before issue work.
 
-The mandatory global `allowed_github_user` policy authorizes only GitHub account
-ID `89701169` (display login `thebeeee`) to request Planetry development through
-issues. Match the immutable numeric ID; the login is cosmetic, so renames keep
-access and a copied login with a different ID is denied. The policy requires an
-actual integer ID greater than zero and a valid GitHub display login; missing or
-malformed policy fails closed. Only issues authored by that account and comments
-from that account may trigger work. Ignore other comments and exclude them from
-the context helper. Denied issues receive no automated replies. `FlintSH`,
-repository owners and collaborators have no implicit bypass.
+The mandatory global `allowed_github_users` policy authorizes GitHub accounts
+`FlintSH` (ID `87043024`) and `thebeeee` (ID `89701169`) to request Planetry
+development through issues and comments. The canonical policy is a nonempty
+list of objects with exactly `id` and `login`: each ID must be an actual integer
+greater than zero and each login a valid GitHub display login. Match immutable
+numeric IDs; logins are cosmetic, so renames keep access and a copied login with
+a different ID is denied. The legacy single-object `allowed_github_user` is
+accepted only when `allowed_github_users` is absent; supplying both keys is
+rejected. Missing or malformed policy fails closed. Only human issues authored
+by an allowed account and human comments from an allowed account may trigger
+work. Ignore outsiders, bots, pull requests and marked automation comments;
+exclude denied comments from the context helper. Denied issues receive no
+automated replies. `FlintSH` is explicitly authorized by ID, not by ownership or
+the posting role; repository owners and collaborators have no implicit bypass.
+
+Use only the installed helper from the control checkout and private config named
+in the task prompt for current context, registry, coordination and GitHub
+replies or state changes. An issue worktree's helper can be stale. New authorized
+comments on closed issues or settled threads return to the same thread and
+worktree. Read the follow-up semantically: for an actionable bug, feature or work
+request, run `reopen --repo OWNER/REPO --issue N --comment COMMENT_ID` through that
+helper before implementation, then close only after verified delivery. Answer
+questions or guidance while keeping resolved issues closed; thanks and other
+non-actionable replies require no reopen or code. Respect cancellations.
 
 Implement authorized requests autonomously, validate them, commit and push to
 `main`, and verify CI and release artifacts. Do not open pull requests unless

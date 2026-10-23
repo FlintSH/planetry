@@ -145,6 +145,10 @@ class GitHubTests(unittest.TestCase):
         for number in (0, -1, "1/../../user", True, 1.5):
             with self.subTest(number=number), self.assertRaises(ValueError):
                 client.get_issue("FlintSH/planetry", number)
+            with self.subTest(reopen_number=number), self.assertRaises(ValueError):
+                client.reopen_issue("FlintSH/planetry", number)
+        with self.assertRaises(ValueError):
+            client.reopen_issue("owner/repo/extra", 1)
         self.assertEqual(opener.requests, [])
 
     def test_explicit_api_path_cannot_change_origin(self):
@@ -199,6 +203,7 @@ class GitHubTests(unittest.TestCase):
             (lambda client: client.me(), RetryableError),
             (lambda client: client.post_comment("FlintSH/planetry", 1, "hello"), AmbiguousMutationError),
             (lambda client: client.close_issue("FlintSH/planetry", 1), AmbiguousMutationError),
+            (lambda client: client.reopen_issue("FlintSH/planetry", 1), AmbiguousMutationError),
         ):
             with self.subTest(expected=expected):
                 client, opener = self.client(URLError(SECRET))
@@ -251,12 +256,14 @@ class GitHubTests(unittest.TestCase):
         client, opener = self.client(
             Response([]), Response([]), Response({"number": 42}),
             Response({"id": 9}, 201), Response({"number": 42, "state": "closed"}),
+            Response({"number": 42, "state": "open"}),
         )
         self.assertEqual(client.list_issues("FlintSH/planetry"), [])
         self.assertEqual(client.list_comments("FlintSH/planetry"), [])
         self.assertEqual(client.get_issue("FlintSH/planetry", 42), {"number": 42})
         self.assertEqual(client.post_comment("FlintSH/planetry", 42, comment), {"id": 9})
         self.assertEqual(client.close_issue("FlintSH/planetry", 42)["state"], "closed")
+        self.assertEqual(client.reopen_issue("FlintSH/planetry", 42), {"number": 42, "state": "open"})
         self.assertEqual(opener.requests[0].full_url, API + "/repos/FlintSH/planetry/issues?state=all&sort=updated&direction=asc&per_page=100")
         self.assertEqual(opener.requests[1].full_url, API + "/repos/FlintSH/planetry/issues/comments?sort=updated&direction=asc&per_page=100")
         self.assertEqual(opener.requests[2].full_url, API + "/repos/FlintSH/planetry/issues/42")
@@ -264,6 +271,9 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(json.loads(opener.requests[3].data), {"body": comment})
         self.assertEqual(opener.requests[4].method, "PATCH")
         self.assertEqual(json.loads(opener.requests[4].data), {"state": "closed"})
+        self.assertEqual(opener.requests[5].full_url, API + "/repos/FlintSH/planetry/issues/42")
+        self.assertEqual(opener.requests[5].method, "PATCH")
+        self.assertEqual(json.loads(opener.requests[5].data), {"state": "open"})
         self.assertTrue(all(timeout == 30 for timeout in opener.timeouts))
 
     def test_onboarding_repository_and_published_main_have_fixed_paths(self):

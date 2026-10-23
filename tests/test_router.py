@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from planetry.router import MARKER, Router
-from planetry.github import GitHubError
+from planetry.github import AmbiguousMutationError, GitHubError
 from planetry.store import digest
 
 
@@ -35,8 +35,10 @@ class FakeGitHub:
         self.next_comment_id = 100
         self.posts = []
         self.closes = []
+        self.reopens = []
         self.lose_post_response = False
         self.lose_close_response = False
+        self.lose_reopen_response = False
         self.issue_errors = {}
 
     def add_issue(self, value, repo=REPO):
@@ -88,6 +90,15 @@ class FakeGitHub:
             raise TimeoutError('GitHub accepted the close but its response was lost')
         return self.get_issue(repo, number)
 
+    def reopen_issue(self, repo, number):
+        self.issues[repo][number]['state'] = 'open'
+        self.issues[repo][number]['closed_at'] = None
+        self.reopens.append((repo, number))
+        if self.lose_reopen_response:
+            self.lose_reopen_response = False
+            raise AmbiguousMutationError('GitHub accepted the reopen but its response was lost')
+        return self.get_issue(repo, number)
+
 
 class FakeT3:
     def __init__(self):
@@ -105,7 +116,8 @@ class FakeT3:
         self.calls.append((name, args))
         if name == 't3_thread_list':
             rows = [t for t in self.threads.values()
-                    if t['projectId'] == args['projectId'] and not t.get('hidden')]
+                    if t['projectId'] == args['projectId'] and not t.get('hidden')
+                    and t.get('settled', False) == args.get('settled', False)]
             offset = int(args.get('cursor', 0))
             stop = offset + self.page_size
             return {'threads': copy.deepcopy(rows[offset:stop]),
@@ -126,6 +138,7 @@ class FakeT3:
             if key not in self.sent:
                 self.sent[key] = args
                 self.threads[args['threadId']]['status'] = 'running'
+                self.threads[args['threadId']]['settled'] = False
             if self.lose_send_response:
                 self.lose_send_response = False
                 raise TimeoutError('T3 accepted send but its response was lost')
@@ -134,6 +147,7 @@ class FakeT3:
 
     def settle(self, thread_id='thread-1'):
         self.threads[thread_id]['status'] = 'completed'
+        self.threads[thread_id]['settled'] = True
 
     def sent_messages(self):
         return [v['message'] for v in self.sent.values()]
@@ -536,6 +550,47 @@ class RouterTests(unittest.TestCase):
         self.router.tick()
         self.assertEqual(2, len(self.t3.launches))
         self.assertIn('#2', self.t3.launches[-1]['title'])
+
+    def test_queued_comment_before_closure_cannot_launch_but_new_closed_followup_can(self):
+        self.start_issue()
+        self.github.add_issue(issue(2))
+        cancelled = self.github.add_comment(2, 'Please include this in the queued work.')
+        cancelled['updated_at'] = '2026-10-17T00:30:00Z'
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertIsNone(self.router.store.issue(REPO, 2)['thread_id'])
+        self.assertTrue(self.router.store.events(REPO, 2))
+        posts_before_close = copy.deepcopy(self.github.posts)
+        self.github.issues[REPO][2].update(state='closed', closed_at='2026-10-17T01:00:00Z')
+
+        self.restart()
+        self.router.tick()
+        self.t3.settle()
+        self.router.tick()
+
+        self.assertEqual(1, len(self.t3.launches), 'Closing queued work must cancel its earlier comment')
+        self.assertEqual(posts_before_close, self.github.posts, 'Cancelled work must not receive a pickup reply')
+        self.assertIsNone(self.router.store.issue(REPO, 2)['thread_id'])
+        self.assertEqual([], self.router.store.events(REPO, 2))
+        self.assertIsNone(self.router.store.pending_delivery(REPO, 2))
+
+        same_time = self.github.add_comment(2, 'This comment has the same timestamp as closure.')
+        same_time['updated_at'] = '2026-10-17T03:00:00+02:00'
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.launches))
+        self.assertEqual(posts_before_close, self.github.posts)
+
+        followup = self.github.add_comment(2, 'A new failure after closure needs triage.')
+        followup['updated_at'] = '2026-10-17T01:00:01Z'
+        self.router.tick()
+        self.assertEqual(2, len(self.t3.launches))
+        self.assertIn('#2', self.t3.launches[-1]['title'])
+        self.assertIn(followup['body'], self.t3.launches[-1]['message'])
+        self.assertNotIn(cancelled['body'], self.t3.launches[-1]['message'])
+        self.assertNotIn(same_time['body'], self.t3.launches[-1]['message'])
+        self.assertIn('"state": "closed"', self.t3.launches[-1]['message'])
+        self.assertEqual('closed', self.github.get_issue(REPO, 2)['state'])
+        self.assertEqual([], self.github.reopens)
 
     def test_close_and_reopen_resume_same_mapped_thread(self):
         self.start_issue()
