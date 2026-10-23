@@ -449,6 +449,9 @@ END GITHUB ISSUE DATA
                 raise ValueError('Mapped thread unavailable; preserve events for recovery')
             if issue['thread_id'] not in active_ids and len(active_ids) >= self.config.get('max_active_threads', 1):
                 return
+            # Reserve before acceptance can become uncertain. A malformed
+            # response must not let another follow-up exceed this tick's cap.
+            active_ids.add(issue['thread_id'])
             result = self.t3.call('t3_thread_send', {
                 'threadId': issue['thread_id'], 'message': delivery['message'],
                 'mode': 'auto', 'clientRequestId': delivery['key']})

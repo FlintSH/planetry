@@ -118,6 +118,38 @@ class FollowupTests(unittest.TestCase):
         self.assertNotIn('Automatic result.', self.t3.sent_messages()[-1])
         self.assertEqual([], self.router.store.events(REPO, 1))
 
+    def test_malformed_accepted_followup_reserves_capacity_until_reconciled(self):
+        self.add_issue(1)
+        self.add_issue(2)
+        self.router.tick()
+        self.t3.settle('thread-1')
+        self.t3.settle('thread-2')
+        self.config['max_active_threads'] = 1
+        self.add_comment(number=1)
+        self.add_comment(number=2)
+        call = self.t3.call
+
+        def malformed(name, args):
+            result = call(name, args)
+            return {} if name == 't3_thread_send' else result
+
+        with patch.object(self.t3, 'call', side_effect=malformed):
+            self.router.tick()
+        self.assertEqual(1, len(self.t3.sent))
+        self.assertTrue(self.router.store.events(REPO, 1))
+        self.assertTrue(self.router.store.events(REPO, 2))
+        self.router.store.clear_failure(f'issue:{REPO}:1')
+        self.restart()
+        # The accepted run remains active and the exact delivery key is reused.
+        self.router.tick()
+        self.assertEqual(1, len(self.t3.sent))
+        self.assertEqual([], self.router.store.events(REPO, 1))
+        self.assertTrue(self.router.store.events(REPO, 2))
+        self.t3.settle('thread-1')
+        self.router.tick()
+        self.assertEqual(2, len(self.t3.sent))
+        self.assertEqual([], self.router.store.events(REPO, 2))
+
     def test_settled_filter_is_explicit_and_followup_resumes_the_same_thread(self):
         self.add_issue()
         self.router.tick()
